@@ -10,9 +10,6 @@ stub = modal.Stub("synthetic-data-generator")
 # Create Modal volume for model persistence
 volume = modal.Volume.from_name("gan-model-vol")
 
-# Define model path constant
-MODEL_PATH = "/model/table_gan.pt"
-
 # Create Modal image
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
@@ -48,7 +45,7 @@ def train_gan(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, 
         losses.append(avg_losses)
 
     # Save model
-    torch.save(gan.state_dict(), MODEL_PATH)
+    torch.save(gan.state_dict(), "/model/table_gan.pt")
     return losses
 
 # Define generation function
@@ -64,7 +61,7 @@ def generate_samples(num_samples: int, input_dim: int, hidden_dim: int) -> np.nd
 
     # Load saved model if exists
     try:
-        gan.load_state_dict(torch.load(MODEL_PATH))
+        gan.load_state_dict(torch.load("/model/table_gan.pt"))
     except Exception as e:
         raise ValueError(f"Failed to load model: {str(e)}")
 
@@ -78,18 +75,16 @@ class ModalGAN:
     """Class for managing Modal GAN operations"""
 
     def __init__(self):
-        try:
-            # Initialize Modal
-            modal.run()
-        except Exception as e:
-            print(f"Modal initialization error: {str(e)}")
+        self.stub = stub
 
     def __enter__(self):
+        """Initialize Modal context"""
         try:
-            # Initialize context
+            # Start Modal stub
+            self.stub.run()
             return self
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize Modal context: {str(e)}")
+            raise RuntimeError(f"Failed to initialize Modal: {str(e)}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -97,17 +92,13 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            # Use the synchronous execution pattern
-            train_func = modal.lookup("synthetic-data-generator", "train_gan")
-            return train_func(data, input_dim, hidden_dim, epochs, batch_size)
+            return train_gan.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            # Use the synchronous execution pattern
-            generate_func = modal.lookup("synthetic-data-generator", "generate_samples")
-            return generate_func(num_samples, input_dim, hidden_dim)
+            return generate_samples.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
