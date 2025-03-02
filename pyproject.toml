@@ -10,6 +10,7 @@ dependencies = [
     "streamlit>=1.42.2",
     "tarsafe>=0.0.5",
     "torch>=2.6.0",
+    "trafilatura>=2.0.0",
 ]
 
 [[tool.uv.index]]
