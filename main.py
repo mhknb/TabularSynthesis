@@ -61,15 +61,17 @@ def main():
 
             for col, col_type in column_types.items():
                 if col_type == 'Continuous':
-                    transformed_data[col] = transformer.transform_continuous(
+                    transformed_col = transformer.transform_continuous(
                         df[col], 
                         transformations.get(col, 'minmax')
                     )
+                    transformed_data[col] = transformed_col
                 elif col_type == 'Categorical':
-                    transformed_data[col] = transformer.transform_categorical(
+                    transformed_col = transformer.transform_categorical(
                         df[col], 
                         transformations.get(col, 'label')
                     )
+                    transformed_data[col] = transformed_col
                 elif col_type == 'Datetime':
                     dt_features = transformer.transform_datetime(df[col])
                     transformed_data = pd.concat([transformed_data, dt_features], axis=1)
