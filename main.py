@@ -15,6 +15,9 @@ from src.ui import components
 
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
+# Initialize Modal resources
+modal_gan = ModalGAN()
+
 def main():
     st.title("Synthetic Tabular Data Generator")
 
@@ -81,9 +84,6 @@ def main():
 
             if use_modal:
                 try:
-                    # Initialize Modal GAN
-                    modal_gan = ModalGAN()
-
                     with st.spinner("Training model on Modal cloud..."):
                         # Train on Modal
                         losses = modal_gan.train(
