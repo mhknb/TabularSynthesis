@@ -9,6 +9,7 @@ import numpy as np
 from src.data_processing.data_loader import DataLoader
 from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
+from src.models.modal_gan import ModalGAN
 from src.utils.validation import validate_data, check_column_types
 from src.ui import components
 import io
@@ -53,6 +54,9 @@ def main():
     # Model configuration
     model_config = components.model_config_section()
 
+    # Add Modal training option
+    use_modal = st.checkbox("Use Modal for cloud training (faster)", value=True)
+
     if st.button("Generate Synthetic Data"):
         with st.spinner("Preparing data..."):
             # Transform data
@@ -76,28 +80,54 @@ def main():
                     dt_features = transformer.transform_datetime(df[col])
                     transformed_data = pd.concat([transformed_data, dt_features], axis=1)
 
-            # Prepare data for training
-            train_data = torch.FloatTensor(transformed_data.values)
-            train_loader = torch.utils.data.DataLoader(
-                train_data, 
-                batch_size=model_config['batch_size'],
-                shuffle=True
-            )
+            if use_modal:
+                try:
+                    # Initialize Modal GAN
+                    modal_gan = ModalGAN()
 
-            # Initialize and train GAN
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            gan = TableGAN(
-                input_dim=transformed_data.shape[1],
-                hidden_dim=model_config['hidden_dim'],
-                device=device
-            )
+                    with st.spinner("Training model on Modal cloud..."):
+                        # Train on Modal
+                        losses = modal_gan.train(
+                            transformed_data,
+                            input_dim=transformed_data.shape[1],
+                            hidden_dim=model_config['hidden_dim'],
+                            epochs=model_config['epochs'],
+                            batch_size=model_config['batch_size']
+                        )
 
-            st.session_state.total_epochs = model_config['epochs']
-            losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
+                        # Generate samples using Modal
+                        synthetic_data = modal_gan.generate(
+                            num_samples=len(df),
+                            input_dim=transformed_data.shape[1],
+                            hidden_dim=model_config['hidden_dim']
+                        )
+                except Exception as e:
+                    st.error(f"Modal training failed: {str(e)}")
+                    st.info("Falling back to local training...")
+                    use_modal = False
 
-            # Generate synthetic data
-            num_samples = len(df)
-            synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
+            if not use_modal:
+                # Prepare data for local training
+                train_data = torch.FloatTensor(transformed_data.values)
+                train_loader = torch.utils.data.DataLoader(
+                    train_data, 
+                    batch_size=model_config['batch_size'],
+                    shuffle=True
+                )
+
+                # Initialize and train GAN locally
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                gan = TableGAN(
+                    input_dim=transformed_data.shape[1],
+                    hidden_dim=model_config['hidden_dim'],
+                    device=device
+                )
+
+                st.session_state.total_epochs = model_config['epochs']
+                losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
+
+                # Generate synthetic data
+                synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
             # Inverse transform
             result_df = pd.DataFrame()
