@@ -82,25 +82,23 @@ def main():
 
             if use_modal:
                 try:
-                    # Initialize Modal GAN
-                    modal_gan = ModalGAN()
+                    with ModalGAN() as modal_gan:
+                        with st.spinner("Training model on Modal cloud..."):
+                            # Train on Modal
+                            losses = modal_gan.train(
+                                transformed_data,
+                                input_dim=transformed_data.shape[1],
+                                hidden_dim=model_config['hidden_dim'],
+                                epochs=model_config['epochs'],
+                                batch_size=model_config['batch_size']
+                            )
 
-                    with st.spinner("Training model on Modal cloud..."):
-                        # Train on Modal
-                        losses = modal_gan.train(
-                            transformed_data,
-                            input_dim=transformed_data.shape[1],
-                            hidden_dim=model_config['hidden_dim'],
-                            epochs=model_config['epochs'],
-                            batch_size=model_config['batch_size']
-                        )
-
-                        # Generate samples using Modal
-                        synthetic_data = modal_gan.generate(
-                            num_samples=len(df),
-                            input_dim=transformed_data.shape[1],
-                            hidden_dim=model_config['hidden_dim']
-                        )
+                            # Generate samples using Modal
+                            synthetic_data = modal_gan.generate(
+                                num_samples=len(df),
+                                input_dim=transformed_data.shape[1],
+                                hidden_dim=model_config['hidden_dim']
+                            )
                 except Exception as e:
                     st.error(f"Modal training failed: {str(e)}")
                     st.info("Falling back to local training...")
