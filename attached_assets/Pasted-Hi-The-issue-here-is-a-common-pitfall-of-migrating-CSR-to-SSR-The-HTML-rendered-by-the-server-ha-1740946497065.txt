@@ -1,0 +1,77 @@
+Hi,
+
+The issue here is a common pitfall of migrating CSR to SSR.
+
+The HTML rendered by the server has to match the first frame rendered by the client. This is because React does something called hydration. This is not a Next.js thing necessarily, it's just something you haven't used in what you call vanilla React, because you've been doing CSR apps.
+
+Hydration takes the HTML rendered by the server, and by rendering in the client, it expects to find matching HTML nodes, to attach event listeners and give the application interactivity.
+
+The dehydrated server string makes it possible to have Time To Visible that are significantly lower than CSR apps. However, Time To Interactive still depends on hydration being completed, and is comparable to CSR apps.
+
+With that being said.
+
+How are you invoking this modal? It is strange that the HTML wouldn't match in this case. Care to share some code?
+
+21 replies
+@icyJoseph
+icyJoseph
+on Jun 30, 2022
+Do you think I should open an issue for that on React-Bootstrap or @restart/ui?
+
+I don't know. It's debatable, whether or not this is a bug, notice I've never called it that, rather called it issue.
+
+A modal/dialog is a UI element that wants to raise above all content, and to do that it appends itself to the end of the DOM. By definition there's no DOM on the server, so this use case is kind of an edge situation.
+
+How to proceed or what should be done, brings me to the next question.
+
+And do you think my approach with the intermediate state can break in any situations?
+
+In your case, you have a feature, where given a query in the URL, a piece of UI is shown, with very relevant data.
+
+If:
+
+I have JS disabled
+I am a bot with no headless browser (with JS enabled)
+A curl request
+Postman
+A crawler with no headless browser (with JS enabled)
+Then I'll miss out on the relevant data, or rather the entire point of this feature. The HTML I receive won't have it. What should we do?
+
+I think, you could use CSS to render the relevant data as part of the HTML, but with CSS that hides it, either with display set to none or the HTML hidden attribute. And remove that as soon as JS (interactivity) becomes available on the client, and the modal can be shown.
+
+How to do this is also not so trivial, should it be together with the modal trigger, or be placed manually as the last element of your component tree.
+
+If JS is disabled then maybe you have a <noscript> tag that removes the display: none from the content so that it becomes visible to humans.
+
+There's a lot to take in here... It is up to you, what's the feature you are after? Let us consider that your CSR app cannot serve any of the above (crawlers, no JS, etc.), so you are already at an advantageous point.
+
+Short answer to both questions, as usual, it depends, on what's the actual feature you want to achieve.
+
+@florianwalther-private
+florianwalther-private
+on Jun 30, 2022
+Author
+@icyJoseph Thank you for the assessment. To build this I would have to build my own modal dialog that doesn't use React-Bootstraps dialog, right?
+Maybe I could make it so that if JavaScript is disabled, the user is forwarded to the full-screen detail page of that resource (which shows the exact same data).
+
+@florianwalther-private
+florianwalther-private
+on Jun 30, 2022
+Author
+Although because of the intermediate state holders I have in some places (to be able to reflect new user votes without refetching the whole data set), I'm afraid that my website will just not work properly without JS anyway.
+
+@icyJoseph
+icyJoseph
+on Jun 30, 2022
+Not necessarily, you could do it with these tools, it just gets a bit more complex, and it is perhaps not worth it at the moment.
+
+I'd think that most modals have this issue, but I know that for example @reach/dialog, https://reach.tech/dialog/, doesn't have this problem, but it also doesn't render anything to the dehydrated HTML from the server.
+
+Don't forget to mark as answered! I think many people run into these issues, there's another discussion going on out there with hundreds of comments. Each case is unique!
+
+@florianwalther-private
+florianwalther-private
+on Jun 30, 2022
+Author
+@icyJoseph Thank you very much for all your help! I will keep the state for now and try to optimize with your tips later if needed!
+
