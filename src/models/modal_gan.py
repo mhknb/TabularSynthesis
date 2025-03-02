@@ -4,8 +4,8 @@ import torch
 import pandas as pd
 import numpy as np
 
-# Create Modal app
-app = modal.App("synthetic-data-generator")
+# Create Modal stub
+stub = modal.Stub("synthetic-data-generator")
 
 # Create Modal volume for model persistence
 volume = modal.Volume.from_name("gan-model-vol")
@@ -17,7 +17,7 @@ MODEL_PATH = "/model/table_gan.pt"
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
 # Define training function
-@app.function(
+@stub.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image
@@ -52,7 +52,7 @@ def train_gan(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, 
     return losses
 
 # Define generation function
-@app.function(
+@stub.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image
@@ -86,11 +86,11 @@ class ModalGAN:
 
     def __enter__(self):
         try:
-            # Start Modal app
-            app.run()
+            # Deploy Modal stub
+            stub.deploy()
             return self
         except Exception as e:
-            raise RuntimeError(f"Failed to start Modal app: {str(e)}")
+            raise RuntimeError(f"Failed to deploy Modal stub: {str(e)}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
