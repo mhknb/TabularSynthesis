@@ -1,0 +1,78 @@
+import torch
+import torch.nn as nn
+from src.models.base_gan import BaseGAN
+
+class TableGAN(BaseGAN):
+    """TableGAN implementation for tabular data"""
+    
+    def __init__(self, input_dim: int, hidden_dim: int = 256, device: str = 'cpu'):
+        super().__init__(input_dim, device)
+        self.hidden_dim = hidden_dim
+        self.generator = self.build_generator().to(device)
+        self.discriminator = self.build_discriminator().to(device)
+        
+        self.g_optimizer = torch.optim.Adam(self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        
+    def build_generator(self) -> nn.Module:
+        """Build generator network"""
+        return nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim),
+            nn.BatchNorm1d(self.hidden_dim),
+            nn.ReLU(),
+            
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.BatchNorm1d(self.hidden_dim),
+            nn.ReLU(),
+            
+            nn.Linear(self.hidden_dim, self.input_dim),
+            nn.Tanh()
+        )
+    
+    def build_discriminator(self) -> nn.Module:
+        """Build discriminator network"""
+        return nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim),
+            nn.LeakyReLU(0.2),
+            
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LeakyReLU(0.2),
+            
+            nn.Linear(self.hidden_dim, 1),
+            nn.Sigmoid()
+        )
+    
+    def train_step(self, real_data: torch.Tensor) -> dict:
+        """Perform one training step"""
+        batch_size = real_data.size(0)
+        real_data = real_data.to(self.device)
+        
+        # Train Discriminator
+        self.d_optimizer.zero_grad()
+        
+        label_real = torch.ones(batch_size, 1).to(self.device)
+        label_fake = torch.zeros(batch_size, 1).to(self.device)
+        
+        output_real = self.discriminator(real_data)
+        d_loss_real = nn.BCELoss()(output_real, label_real)
+        
+        noise = torch.randn(batch_size, self.input_dim).to(self.device)
+        fake_data = self.generator(noise)
+        output_fake = self.discriminator(fake_data.detach())
+        d_loss_fake = nn.BCELoss()(output_fake, label_fake)
+        
+        d_loss = d_loss_real + d_loss_fake
+        d_loss.backward()
+        self.d_optimizer.step()
+        
+        # Train Generator
+        self.g_optimizer.zero_grad()
+        output_fake = self.discriminator(fake_data)
+        g_loss = nn.BCELoss()(output_fake, label_real)
+        g_loss.backward()
+        self.g_optimizer.step()
+        
+        return {
+            'discriminator_loss': d_loss.item(),
+            'generator_loss': g_loss.item()
+        }
