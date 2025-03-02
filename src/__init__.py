@@ -1,0 +1,3 @@
+"""
+Synthetic Data Generator package
+"""

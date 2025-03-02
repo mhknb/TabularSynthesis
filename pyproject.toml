@@ -1,7 +1,7 @@
 [project]
-name = "repl-nix-workspace"
+name = "synthetic-data-generator"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Streamlit-based synthetic data generation system with modular GAN architecture"
 requires-python = ">=3.11"
 dependencies = [
     "numpy>=2.2.3",
