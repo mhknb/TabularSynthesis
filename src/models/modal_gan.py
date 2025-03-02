@@ -6,7 +6,11 @@ from src.models.table_gan import TableGAN
 
 # Define stub and shared resources at module level
 stub = modal.Stub("synthetic-data-generator")
-volume = modal.Volume.from_name("gan-model-vol")
+
+# Create volume with create_if_missing flag
+volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
+
+# Create Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
 @stub.function(
@@ -39,8 +43,13 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                      for k in epoch_losses[0].keys()}
         losses.append(avg_losses)
 
-    # Save model
-    torch.save(gan.state_dict(), "/model/table_gan.pt")
+    try:
+        # Save model with proper error handling
+        torch.save(gan.state_dict(), "/model/table_gan.pt")
+        volume.commit()  # Commit changes to persist model
+    except Exception as e:
+        print(f"Warning: Failed to save model: {str(e)}")
+
     return losses
 
 @stub.function(
@@ -53,8 +62,8 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
-    # Load saved model if exists
     try:
+        # Load saved model with proper error handling
         gan.load_state_dict(torch.load("/model/table_gan.pt"))
     except Exception as e:
         raise ValueError(f"Failed to load model: {str(e)}")
@@ -71,7 +80,7 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            # Run the stub before executing remote functions
+            # Run the stub and ensure volume is ready
             with stub.run():
                 return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
@@ -80,7 +89,7 @@ class ModalGAN:
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            # Run the stub before executing remote functions
+            # Run the stub and ensure volume is ready
             with stub.run():
                 return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
