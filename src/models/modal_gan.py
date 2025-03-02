@@ -97,13 +97,17 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            return train_gan.call(data, input_dim, hidden_dim, epochs, batch_size)
+            # Use the synchronous execution pattern
+            train_func = modal.lookup("synthetic-data-generator", "train_gan")
+            return train_func(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            return generate_samples.call(num_samples, input_dim, hidden_dim)
+            # Use the synchronous execution pattern
+            generate_func = modal.lookup("synthetic-data-generator", "generate_samples")
+            return generate_func(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
