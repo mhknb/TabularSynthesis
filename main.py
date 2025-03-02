@@ -12,7 +12,6 @@ from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.utils.validation import validate_data, check_column_types
 from src.ui import components
-import io
 
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
@@ -82,9 +81,11 @@ def main():
 
             if use_modal:
                 try:
-                    # Use Modal for training
+                    # Initialize Modal GAN
                     modal_gan = ModalGAN()
+
                     with st.spinner("Training model on Modal cloud..."):
+                        # Train on Modal
                         losses = modal_gan.train(
                             transformed_data,
                             input_dim=transformed_data.shape[1],
@@ -105,7 +106,7 @@ def main():
                     use_modal = False
 
             if not use_modal:
-                # Prepare data for local training
+                # Local training fallback
                 train_data = torch.FloatTensor(transformed_data.values)
                 train_loader = torch.utils.data.DataLoader(
                     train_data, 
@@ -113,7 +114,6 @@ def main():
                     shuffle=True
                 )
 
-                # Initialize and train GAN locally
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 gan = TableGAN(
                     input_dim=transformed_data.shape[1],
@@ -123,8 +123,6 @@ def main():
 
                 st.session_state.total_epochs = model_config['epochs']
                 losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
-
-                # Generate synthetic data
                 synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
             # Inverse transform

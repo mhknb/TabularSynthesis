@@ -4,25 +4,22 @@ import torch
 import pandas as pd
 import numpy as np
 
-# Initialize Modal and create app
-stub = modal.Stub("synthetic-data-generator")
+# Initialize Modal volume
 volume = modal.Volume.from_name("gan-model-vol")
+
+# Create Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
-# Initialize Modal at module level
-try:
-    if not stub.is_initialized():
-        modal.init()
-except Exception as e:
-    print(f"Modal initialization warning (non-critical): {str(e)}")
+# Create Modal app with proper initialization
+app = modal.App()
 
-@stub.function(
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image
 )
-def train_gan_async(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
-    """Train GAN model using Modal"""
+async def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
+    """Train GAN model using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
@@ -50,13 +47,13 @@ def train_gan_async(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs:
     torch.save(gan.state_dict(), "/model/table_gan.pt")
     return losses
 
-@stub.function(
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image
 )
-def generate_samples_async(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
-    """Generate synthetic samples using Modal"""
+async def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
+    """Generate synthetic samples using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
@@ -73,18 +70,26 @@ def generate_samples_async(num_samples: int, input_dim: int, hidden_dim: int) ->
         return synthetic_data.cpu().numpy()
 
 class ModalGAN:
-    """Simple wrapper for Modal GAN operations"""
+    """Class for managing Modal GAN operations"""
+
+    def __init__(self):
+        """Initialize Modal app"""
+        try:
+            modal.init()
+            self.app = app
+        except Exception as e:
+            print(f"Modal initialization warning: {str(e)}")
 
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            return train_gan_async.remote(data, input_dim, hidden_dim, epochs, batch_size)
+            return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            return generate_samples_async.remote(num_samples, input_dim, hidden_dim)
+            return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
