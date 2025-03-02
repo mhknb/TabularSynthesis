@@ -79,18 +79,17 @@ class ModalGAN:
 
     def __init__(self):
         try:
-            # Initialize Modal client
-            modal.init()
+            # Initialize Modal
+            modal.Container()
         except Exception as e:
             print(f"Modal initialization error: {str(e)}")
 
     def __enter__(self):
         try:
-            # Deploy Modal stub
-            stub.deploy()
+            # Initialize context
             return self
         except Exception as e:
-            raise RuntimeError(f"Failed to deploy Modal stub: {str(e)}")
+            raise RuntimeError(f"Failed to initialize Modal context: {str(e)}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
@@ -98,13 +97,15 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            return train_gan.remote(data, input_dim, hidden_dim, epochs, batch_size)
+            with modal.container():
+                return train_gan.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            return generate_samples.remote(num_samples, input_dim, hidden_dim)
+            with modal.container():
+                return generate_samples.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
