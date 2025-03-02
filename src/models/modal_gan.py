@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
 
-# Define stub and shared resources at module level
-stub = modal.Stub("synthetic-data-generator")
+# Define app and shared resources at module level
+app = modal.App("synthetic-data-generator")
 
 # Create volume with create_if_missing flag
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
@@ -13,7 +13,7 @@ volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 # Create Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
-@stub.function(
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
@@ -52,7 +52,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
     return losses
 
-@stub.function(
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
@@ -80,8 +80,8 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            # Run the stub and ensure volume is ready
-            with stub.run():
+            # Run the app and ensure volume is ready
+            with app.run():
                 return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             raise RuntimeError(f"Modal training failed: {str(e)}")
@@ -89,8 +89,8 @@ class ModalGAN:
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            # Run the stub and ensure volume is ready
-            with stub.run():
+            # Run the app and ensure volume is ready
+            with app.run():
                 return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
