@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from typing import Tuple, Optional
+import io
 
 def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """Create file upload widget and handle uploaded file"""
@@ -10,7 +11,7 @@ def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
         type=['csv', 'xlsx', 'xls', 'parquet'],
         help="Upload your tabular data file (CSV, Excel, or Parquet format)"
     )
-    
+
     if uploaded_file is not None:
         from src.data_processing.data_loader import DataLoader
         return DataLoader.load_data(uploaded_file, uploaded_file.name)
@@ -19,25 +20,25 @@ def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
 def data_preview(df: pd.DataFrame):
     """Display data preview with basic statistics"""
     st.header("Data Preview")
-    
+
     st.subheader("Sample Data")
     st.dataframe(df.head())
-    
+
     st.subheader("Data Info")
     buffer = io.StringIO()
     df.info(buf=buffer)
     st.text(buffer.getvalue())
-    
+
     st.subheader("Basic Statistics")
     st.write(df.describe())
 
 def column_type_selector(df: pd.DataFrame):
     """Create column type selection interface"""
     st.header("Column Configuration")
-    
+
     from src.data_processing.data_loader import DataLoader
     inferred_types = DataLoader.infer_column_types(df)
-    
+
     column_types = {}
     for col in df.columns:
         column_types[col] = st.selectbox(
@@ -50,11 +51,11 @@ def column_type_selector(df: pd.DataFrame):
 def transformation_selector(column_types: dict):
     """Create transformation selection interface"""
     st.header("Transformation Settings")
-    
+
     transformations = {}
     for col, col_type in column_types.items():
         st.subheader(f"Column: {col}")
-        
+
         if col_type == 'Continuous':
             transformations[col] = st.selectbox(
                 f"Scaling method for '{col}'",
@@ -67,13 +68,13 @@ def transformation_selector(column_types: dict):
                 options=['label', 'onehot'],
                 key=f"transform_{col}"
             )
-    
+
     return transformations
 
 def model_config_section():
     """Create model configuration interface"""
     st.header("Model Configuration")
-    
+
     config = {
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
         'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
@@ -84,14 +85,14 @@ def model_config_section():
             value=0.0002
         )
     }
-    
+
     return config
 
 def training_progress(epoch: int, losses: dict):
     """Update training progress"""
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     progress_bar.progress(epoch / st.session_state.total_epochs)
     status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
                     f"Discriminator Loss: {losses['discriminator_loss']:.4f}")
