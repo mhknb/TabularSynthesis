@@ -31,7 +31,7 @@ class DataTransformer:
             transformed = pd.Series(encoder.fit_transform(data), name=data.name)
             self.encoding_maps[data.name] = {
                 'method': 'label',
-                'categories': list(encoder.classes_),
+                'categories': np.array(list(encoder.classes_)),  # Convert to numpy array
                 'num_categories': len(encoder.classes_)
             }
             return transformed
@@ -42,10 +42,10 @@ class DataTransformer:
             self.encoding_maps[data.name] = {
                 'method': 'onehot',
                 'columns': list(dummies.columns),
-                'original_categories': list(data.unique()),
+                'original_categories': np.array(list(data.unique())),  # Convert to numpy array
                 'num_categories': len(data.unique())
             }
-            # For one-hot encoding, we return just the first encoded column
+            # Return factorized data
             return pd.Series(data.factorize()[0], name=data.name)
         else:
             raise ValueError(f"Unknown encoding method: {method}")
@@ -75,16 +75,16 @@ class DataTransformer:
 
         # Clamp values to valid range and convert to integers
         num_categories = encoding_info['num_categories']
-        clamped_values = np.clip(data.values, 0, num_categories - 1).astype(int)
+        values = np.asarray(data.values)  # Ensure numpy array
+        clamped_values = np.clip(values, 0, num_categories - 1).astype(np.int32)
 
         if encoding_info['method'] == 'label':
-            encoder = self.encoders.get(data.name)
-            if encoder is None:
-                raise ValueError(f"No encoder found for column {data.name}")
             categories = encoding_info['categories']
-            return pd.Series(categories[clamped_values], name=data.name)
+            result = categories[clamped_values]
+            return pd.Series(result, name=data.name)
         elif encoding_info['method'] == 'onehot':
             categories = encoding_info['original_categories']
-            return pd.Series(categories[clamped_values], name=data.name)
+            result = categories[clamped_values]
+            return pd.Series(result, name=data.name)
 
         raise ValueError(f"Unknown encoding method for column {data.name}")
