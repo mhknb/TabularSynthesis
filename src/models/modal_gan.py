@@ -13,8 +13,7 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 @stub.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=image,
-    interactive=True  # Enable interactive mode for better error handling
+    image=image
 )
 def train_gan_async(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
     """Train GAN model using Modal"""
@@ -48,8 +47,7 @@ def train_gan_async(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs:
 @stub.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=image,
-    interactive=True  # Enable interactive mode for better error handling
+    image=image
 )
 def generate_samples_async(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
     """Generate synthetic samples using Modal"""
