@@ -4,8 +4,8 @@ import torch
 import pandas as pd
 import numpy as np
 
-# Create Modal stub
-stub = modal.Stub("synthetic-data-generator")
+# Create Modal app
+app = modal.App("synthetic-data-generator")
 
 # Create Modal volume for model persistence
 volume = modal.Volume.from_name("gan-model-vol")
@@ -13,11 +13,14 @@ volume = modal.Volume.from_name("gan-model-vol")
 # Define model path constant
 MODEL_PATH = "/model/table_gan.pt"
 
-# Define training function in global scope
-@stub.function(
+# Create Modal image
+image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
+
+# Define training function
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
+    image=image
 )
 def train_gan(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
     """Train GAN model using Modal"""
@@ -48,11 +51,11 @@ def train_gan(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, 
     torch.save(gan.state_dict(), MODEL_PATH)
     return losses
 
-# Define generation function in global scope
-@stub.function(
+# Define generation function
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
+    image=image
 )
 def generate_samples(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
     """Generate synthetic samples using Modal"""
@@ -76,20 +79,32 @@ class ModalGAN:
 
     def __init__(self):
         try:
-            modal.setup()
+            # Initialize Modal client
+            modal.init()
         except Exception as e:
-            print(f"Modal setup error: {str(e)}")
+            print(f"Modal initialization error: {str(e)}")
 
     def __enter__(self):
-        return self
+        try:
+            # Start Modal app
+            app.run()
+            return self
+        except Exception as e:
+            raise RuntimeError(f"Failed to start Modal app: {str(e)}")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
-        return train_gan.remote(data, input_dim, hidden_dim, epochs, batch_size)
+        try:
+            return train_gan.remote(data, input_dim, hidden_dim, epochs, batch_size)
+        except Exception as e:
+            raise RuntimeError(f"Modal training failed: {str(e)}")
 
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
-        return generate_samples.remote(num_samples, input_dim, hidden_dim)
+        try:
+            return generate_samples.remote(num_samples, input_dim, hidden_dim)
+        except Exception as e:
+            raise RuntimeError(f"Modal generation failed: {str(e)}")
