@@ -4,12 +4,18 @@ import torch
 import pandas as pd
 import numpy as np
 
-# Initialize Modal stub and volume once at module level
+# Initialize Modal and create app
 stub = modal.Stub("synthetic-data-generator")
 volume = modal.Volume.from_name("gan-model-vol")
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
-# Create shared functions at module level
+# Initialize Modal at module level
+try:
+    if not stub.is_initialized():
+        modal.init()
+except Exception as e:
+    print(f"Modal initialization warning (non-critical): {str(e)}")
+
 @stub.function(
     gpu="T4",
     volumes={"/model": volume},
@@ -67,27 +73,11 @@ def generate_samples_async(num_samples: int, input_dim: int, hidden_dim: int) ->
         return synthetic_data.cpu().numpy()
 
 class ModalGAN:
-    """Class for managing Modal GAN operations"""
-
-    def __init__(self):
-        # Initialize Modal at startup
-        try:
-            if not stub.is_initialized():
-                stub.app_init()
-        except Exception as e:
-            print(f"Modal initialization warning (non-critical): {str(e)}")
-
-    def __enter__(self):
-        """Initialize Modal context"""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+    """Simple wrapper for Modal GAN operations"""
 
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            # Call the async training function
             return train_gan_async.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             raise RuntimeError(f"Modal training failed: {str(e)}")
@@ -95,7 +85,6 @@ class ModalGAN:
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            # Call the async generation function
             return generate_samples_async.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
