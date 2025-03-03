@@ -24,7 +24,7 @@ class DataEvaluator:
 
         # Initialize transformers
         scaler = StandardScaler()
-        encoders = {col: LabelEncoder() for col in categorical_cols}
+        encoders = {}
 
         # Process numerical features
         X_train_num = scaler.fit_transform(X_train[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
@@ -42,7 +42,7 @@ class DataEvaluator:
             X_train[col] = X_train[col].map(lambda x: 'Other' if x not in unique_values else x)
 
             # Fit encoder with all possible categories including 'Other'
-            encoders[col].fit(all_categories)
+            encoders[col] = LabelEncoder().fit(all_categories)
             X_train_cat[:, i] = encoders[col].transform(X_train[col])
 
         # Combine features
@@ -57,9 +57,9 @@ class DataEvaluator:
                 X_test[col] = X_test[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
                 X_test_cat[:, i] = encoders[col].transform(X_test[col])
             X_test_processed = np.hstack([X_test_num, X_test_cat]) if len(categorical_cols) > 0 else X_test_num
-            return X_train_processed, X_test_processed
+            return X_train_processed, X_test_processed, scaler, encoders
 
-        return X_train_processed
+        return X_train_processed, scaler, encoders
 
     def statistical_similarity(self) -> dict:
         """Calculate statistical similarity metrics"""
@@ -183,6 +183,26 @@ class DataEvaluator:
             X_real, y_real, test_size=test_size, random_state=42
         )
 
+        # Preprocess training data and get transformers
+        X_train_real_processed, X_test_real_processed, scaler, encoders = self.preprocess_features(X_train_real, X_test_real)
+
+        # Transform synthetic data using the same transformers
+        X_synthetic_processed = np.zeros((len(X_synthetic), X_train_real_processed.shape[1]))
+
+        # Process numerical features for synthetic data
+        numerical_cols = X_synthetic.select_dtypes(include=[np.number]).columns
+        if len(numerical_cols) > 0:
+            X_synthetic_num = scaler.transform(X_synthetic[numerical_cols])
+            X_synthetic_processed[:, :len(numerical_cols)] = X_synthetic_num
+
+        # Process categorical features for synthetic data
+        categorical_cols = X_synthetic.select_dtypes(exclude=[np.number]).columns
+        if len(categorical_cols) > 0:
+            start_idx = len(numerical_cols)
+            for i, col in enumerate(categorical_cols):
+                X_synthetic[col] = X_synthetic[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+                X_synthetic_processed[:, start_idx + i] = encoders[col].transform(X_synthetic[col])
+
         # Handle categorical target variable
         if task_type == 'classification':
             target_encoder = LabelEncoder()
@@ -203,10 +223,6 @@ class DataEvaluator:
             y_train_real = target_encoder.transform(y_train_real)
             y_test_real = target_encoder.transform(y_test_real)
             y_synthetic = target_encoder.transform(y_synthetic)
-
-        # Preprocess features
-        X_train_real_processed, X_test_real_processed = self.preprocess_features(X_train_real, X_test_real)
-        X_synthetic_processed = self.preprocess_features(X_synthetic)
 
         # Initialize models based on task type
         if task_type == 'classification':
