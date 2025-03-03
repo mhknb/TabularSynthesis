@@ -10,18 +10,29 @@ class DataTransformer:
         self.encoders = {}
         self.scalers = {}
         self.encoding_maps = {}  # Store encoding information for inverse transform
+        self.data_ranges = {}  # Store original data ranges for validation
 
     def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
         """Transform continuous data using specified method"""
+        # Store original data range for this column
+        self.data_ranges[data.name] = {
+            'min': data.min(),
+            'max': data.max(),
+            'dtype': data.dtype
+        }
+
         if method == 'minmax':
-            scaler = MinMaxScaler()
+            scaler = MinMaxScaler(feature_range=(-1, 1))  # Use (-1,1) for GAN compatibility
         elif method == 'standard':
             scaler = StandardScaler()
         else:
             raise ValueError(f"Unknown scaling method: {method}")
 
         self.scalers[data.name] = scaler
-        return pd.Series(scaler.fit_transform(data.values.reshape(-1, 1)).flatten(), name=data.name)
+        return pd.Series(
+            scaler.fit_transform(data.values.reshape(-1, 1)).flatten(),
+            name=data.name
+        )
 
     def transform_categorical(self, data: pd.Series, method: str = 'label') -> pd.Series:
         """Transform categorical data using specified method"""
@@ -31,24 +42,82 @@ class DataTransformer:
             transformed = pd.Series(encoder.fit_transform(data), name=data.name)
             self.encoding_maps[data.name] = {
                 'method': 'label',
-                'categories': np.array(list(encoder.classes_)),  # Convert to numpy array
+                'categories': encoder.classes_,
                 'num_categories': len(encoder.classes_)
             }
             return transformed
         elif method == 'onehot':
-            # Get dummy variables
             dummies = pd.get_dummies(data, prefix=data.name)
-            # Store encoding information for inverse transform
             self.encoding_maps[data.name] = {
                 'method': 'onehot',
                 'columns': list(dummies.columns),
-                'original_categories': np.array(list(data.unique())),  # Convert to numpy array
+                'original_categories': data.unique(),
                 'num_categories': len(data.unique())
             }
-            # Return factorized data
             return pd.Series(data.factorize()[0], name=data.name)
         else:
             raise ValueError(f"Unknown encoding method: {method}")
+
+    def inverse_transform_continuous(self, data: pd.Series) -> pd.Series:
+        """Inverse transform continuous data with range validation"""
+        scaler = self.scalers.get(data.name)
+        if scaler is None:
+            raise ValueError(f"No scaler found for column {data.name}")
+
+        # Inverse transform
+        transformed_data = scaler.inverse_transform(data.values.reshape(-1, 1)).flatten()
+
+        # Get original data range
+        data_range = self.data_ranges.get(data.name)
+        if data_range:
+            # Clamp values to original range
+            transformed_data = np.clip(
+                transformed_data,
+                data_range['min'],
+                data_range['max']
+            )
+
+            # Convert to original dtype if needed
+            if data_range['dtype'] in [np.int32, np.int64, int]:
+                transformed_data = np.round(transformed_data).astype(data_range['dtype'])
+
+        return pd.Series(transformed_data, name=data.name)
+
+    def inverse_transform_categorical(self, data: pd.Series) -> pd.Series:
+        """Inverse transform categorical data"""
+        encoding_info = self.encoding_maps.get(data.name)
+        if encoding_info is None:
+            raise ValueError(f"No encoding information found for column {data.name}")
+
+        if encoding_info['method'] == 'label':
+            encoder = self.encoders.get(data.name)
+            if encoder is None:
+                raise ValueError(f"No encoder found for column {data.name}")
+
+            # Ensure values are within valid range
+            values = np.clip(
+                np.round(data.values),
+                0,
+                len(encoding_info['categories']) - 1
+            ).astype(int)
+
+            return pd.Series(
+                encoder.inverse_transform(values),
+                name=data.name
+            )
+        elif encoding_info['method'] == 'onehot':
+            values = np.clip(
+                np.round(data.values),
+                0,
+                encoding_info['num_categories'] - 1
+            ).astype(int)
+
+            return pd.Series(
+                encoding_info['original_categories'][values],
+                name=data.name
+            )
+
+        raise ValueError(f"Unknown encoding method for column {data.name}")
 
     def transform_datetime(self, data: pd.Series) -> pd.DataFrame:
         """Transform datetime into multiple features"""
@@ -59,32 +128,3 @@ class DataTransformer:
             f"{data.name}_day": dt_series.dt.day,
             f"{data.name}_dayofweek": dt_series.dt.dayofweek
         })
-
-    def inverse_transform_continuous(self, data: pd.Series) -> pd.Series:
-        """Inverse transform continuous data"""
-        scaler = self.scalers.get(data.name)
-        if scaler is None:
-            raise ValueError(f"No scaler found for column {data.name}")
-        return pd.Series(scaler.inverse_transform(data.values.reshape(-1, 1)).flatten(), name=data.name)
-
-    def inverse_transform_categorical(self, data: pd.Series) -> pd.Series:
-        """Inverse transform categorical data"""
-        encoding_info = self.encoding_maps.get(data.name)
-        if encoding_info is None:
-            raise ValueError(f"No encoding information found for column {data.name}")
-
-        # Clamp values to valid range and convert to integers
-        num_categories = encoding_info['num_categories']
-        values = np.asarray(data.values)  # Ensure numpy array
-        clamped_values = np.clip(values, 0, num_categories - 1).astype(np.int32)
-
-        if encoding_info['method'] == 'label':
-            categories = encoding_info['categories']
-            result = categories[clamped_values]
-            return pd.Series(result, name=data.name)
-        elif encoding_info['method'] == 'onehot':
-            categories = encoding_info['original_categories']
-            result = categories[clamped_values]
-            return pd.Series(result, name=data.name)
-
-        raise ValueError(f"Unknown encoding method for column {data.name}")
