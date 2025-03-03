@@ -16,6 +16,122 @@ class DataEvaluator:
         self.real_data = real_data
         self.synthetic_data = synthetic_data
 
+    def preprocess_features(self, X_train, X_test=None):
+        """Preprocess features by handling both numerical and categorical data"""
+        # Identify numerical and categorical columns
+        numerical_cols = X_train.select_dtypes(include=[np.number]).columns
+        categorical_cols = X_train.select_dtypes(exclude=[np.number]).columns
+
+        # Initialize transformers
+        scaler = StandardScaler()
+        encoders = {col: LabelEncoder() for col in categorical_cols}
+
+        # Process numerical features
+        X_train_num = scaler.fit_transform(X_train[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
+
+        # Process categorical features
+        X_train_cat = np.zeros((len(X_train), len(categorical_cols)))
+        for i, col in enumerate(categorical_cols):
+            # Get unique values from both train and test sets
+            unique_values = set(X_train[col].unique())
+            if X_test is not None:
+                unique_values.update(X_test[col].unique())
+
+            # Handle rare categories
+            all_categories = list(unique_values) + ['Other']  # Add 'Other' to all columns
+            X_train[col] = X_train[col].map(lambda x: 'Other' if x not in unique_values else x)
+
+            # Fit encoder with all possible categories including 'Other'
+            encoders[col].fit(all_categories)
+            X_train_cat[:, i] = encoders[col].transform(X_train[col])
+
+        # Combine features
+        X_train_processed = np.hstack([X_train_num, X_train_cat]) if len(categorical_cols) > 0 else X_train_num
+
+        # If test data is provided, transform it using the fitted transformers
+        if X_test is not None:
+            X_test_num = scaler.transform(X_test[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
+            X_test_cat = np.zeros((len(X_test), len(categorical_cols)))
+            for i, col in enumerate(categorical_cols):
+                # Map unseen categories to 'Other'
+                X_test[col] = X_test[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+                X_test_cat[:, i] = encoders[col].transform(X_test[col])
+            X_test_processed = np.hstack([X_test_num, X_test_cat]) if len(categorical_cols) > 0 else X_test_num
+            return X_train_processed, X_test_processed
+
+        return X_train_processed
+
+    def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
+        """
+        Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology
+        """
+        # Prepare features and target
+        X_real = self.real_data.drop(columns=[target_column])
+        y_real = self.real_data[target_column]
+        X_synthetic = self.synthetic_data.drop(columns=[target_column])
+        y_synthetic = self.synthetic_data[target_column]
+
+        # Split real data into train and test sets
+        X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
+            X_real, y_real, test_size=test_size, random_state=42
+        )
+
+        # Handle categorical target variable
+        if task_type == 'classification':
+            target_encoder = LabelEncoder()
+            # Get all unique values from both real and synthetic data
+            unique_values = set(y_real.unique())
+            unique_values.update(y_synthetic.unique())
+
+            # Add 'Other' category to encoder classes
+            all_categories = list(unique_values) + ['Other']
+            target_encoder.fit(all_categories)
+
+            # Replace rare categories with 'Other'
+            y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_values else x)
+            y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_values else x)
+            y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_values else x)
+
+            # Encode target variables
+            y_train_real = target_encoder.transform(y_train_real)
+            y_test_real = target_encoder.transform(y_test_real)
+            y_synthetic = target_encoder.transform(y_synthetic)
+
+        # Preprocess features
+        X_train_real_processed, X_test_real_processed = self.preprocess_features(X_train_real, X_test_real)
+        X_synthetic_processed = self.preprocess_features(X_synthetic)
+
+        # Initialize models based on task type
+        if task_type == 'classification':
+            real_model = RandomForestClassifier(n_estimators=100, random_state=42)
+            synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
+            metric_func = accuracy_score
+            metric_name = 'accuracy'
+        else:  # regression
+            real_model = RandomForestRegressor(n_estimators=100, random_state=42)
+            synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
+            metric_func = r2_score
+            metric_name = 'r2_score'
+
+        # Train and evaluate real data model
+        real_model.fit(X_train_real_processed, y_train_real)
+        real_pred = real_model.predict(X_test_real_processed)
+        real_score = metric_func(y_test_real, real_pred)
+
+        # Train on synthetic, test on real
+        synthetic_model.fit(X_synthetic_processed, y_synthetic)
+        synthetic_pred = synthetic_model.predict(X_test_real_processed)
+        synthetic_score = metric_func(y_test_real, synthetic_pred)
+
+        # Calculate relative performance
+        relative_performance = (synthetic_score / real_score) * 100
+
+        return {
+            f'real_model_{metric_name}': real_score,
+            f'synthetic_model_{metric_name}': synthetic_score,
+            'relative_performance_percentage': relative_performance
+        }
+
     def statistical_similarity(self) -> dict:
         """Calculate statistical similarity metrics"""
         metrics = {}
@@ -96,121 +212,6 @@ class DataEvaluator:
             plt.close()
         else:
             return fig
-
-    def preprocess_features(self, X_train, X_test=None):
-        """Preprocess features by handling both numerical and categorical data"""
-        # Identify numerical and categorical columns
-        numerical_cols = X_train.select_dtypes(include=[np.number]).columns
-        categorical_cols = X_train.select_dtypes(exclude=[np.number]).columns
-
-        # Initialize transformers
-        scaler = StandardScaler()
-        encoders = {col: LabelEncoder() for col in categorical_cols}
-
-        # Process numerical features
-        X_train_num = scaler.fit_transform(X_train[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
-
-        # Process categorical features
-        X_train_cat = np.zeros((len(X_train), len(categorical_cols)))
-        for i, col in enumerate(categorical_cols):
-            # Get unique values from both train and test sets
-            unique_values = set(X_train[col].unique())
-            if X_test is not None:
-                unique_values.update(X_test[col].unique())
-
-            # Handle rare categories
-            X_train[col] = X_train[col].map(lambda x: 'Other' if x not in unique_values else x)
-            if X_test is not None:
-                X_test[col] = X_test[col].map(lambda x: 'Other' if x not in unique_values else x)
-
-            X_train_cat[:, i] = encoders[col].fit_transform(X_train[col])
-
-        # Combine features
-        X_train_processed = np.hstack([X_train_num, X_train_cat]) if len(categorical_cols) > 0 else X_train_num
-
-        # If test data is provided, transform it using the fitted transformers
-        if X_test is not None:
-            X_test_num = scaler.transform(X_test[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
-            X_test_cat = np.zeros((len(X_test), len(categorical_cols)))
-            for i, col in enumerate(categorical_cols):
-                try:
-                    X_test_cat[:, i] = encoders[col].transform(X_test[col])
-                except ValueError as e:
-                    print(f"Warning: Handling unseen categories in column {col}")
-                    # Add unseen categories to 'Other'
-                    X_test[col] = X_test[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
-                    X_test_cat[:, i] = encoders[col].transform(X_test[col])
-            X_test_processed = np.hstack([X_test_num, X_test_cat]) if len(categorical_cols) > 0 else X_test_num
-            return X_train_processed, X_test_processed
-
-        return X_train_processed
-
-    def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
-        """
-        Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology
-        """
-        # Prepare features and target
-        X_real = self.real_data.drop(columns=[target_column])
-        y_real = self.real_data[target_column]
-        X_synthetic = self.synthetic_data.drop(columns=[target_column])
-        y_synthetic = self.synthetic_data[target_column]
-
-        # Split real data into train and test sets
-        X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
-            X_real, y_real, test_size=test_size, random_state=42
-        )
-
-        # Handle categorical target variable
-        if task_type == 'classification':
-            target_encoder = LabelEncoder()
-            # Get all unique values from both real and synthetic data
-            unique_values = set(y_real.unique())
-            unique_values.update(y_synthetic.unique())
-
-            # Replace rare categories with 'Other'
-            y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_values else x)
-            y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_values else x)
-            y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_values else x)
-
-            # Encode target variables
-            y_train_real = target_encoder.fit_transform(y_train_real)
-            y_test_real = target_encoder.transform(y_test_real)
-            y_synthetic = target_encoder.transform(y_synthetic)
-
-        # Preprocess features
-        X_train_real_processed, X_test_real_processed = self.preprocess_features(X_train_real, X_test_real)
-        X_synthetic_processed = self.preprocess_features(X_synthetic)
-
-        # Initialize models based on task type
-        if task_type == 'classification':
-            real_model = RandomForestClassifier(n_estimators=100, random_state=42)
-            synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
-            metric_func = accuracy_score
-            metric_name = 'accuracy'
-        else:  # regression
-            real_model = RandomForestRegressor(n_estimators=100, random_state=42)
-            synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
-            metric_func = r2_score
-            metric_name = 'r2_score'
-
-        # Train and evaluate real data model
-        real_model.fit(X_train_real_processed, y_train_real)
-        real_pred = real_model.predict(X_test_real_processed)
-        real_score = metric_func(y_test_real, real_pred)
-
-        # Train on synthetic, test on real
-        synthetic_model.fit(X_synthetic_processed, y_synthetic)
-        synthetic_pred = synthetic_model.predict(X_test_real_processed)
-        synthetic_score = metric_func(y_test_real, synthetic_pred)
-
-        # Calculate relative performance
-        relative_performance = (synthetic_score / real_score) * 100
-
-        return {
-            f'real_model_{metric_name}': real_score,
-            f'synthetic_model_{metric_name}': synthetic_score,
-            'relative_performance_percentage': relative_performance
-        }
 
     def evaluate_all(self, target_column: str = None, task_type: str = 'classification') -> dict:
         """Run all evaluations and return comprehensive metrics"""
