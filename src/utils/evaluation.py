@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -97,14 +97,41 @@ class DataEvaluator:
         else:
             return fig
 
+    def preprocess_features(self, X_train, X_test=None):
+        """Preprocess features by handling both numerical and categorical data"""
+        # Identify numerical and categorical columns
+        numerical_cols = X_train.select_dtypes(include=[np.number]).columns
+        categorical_cols = X_train.select_dtypes(exclude=[np.number]).columns
+
+        # Initialize transformers
+        scaler = StandardScaler()
+        encoders = {col: LabelEncoder() for col in categorical_cols}
+
+        # Process numerical features
+        X_train_num = scaler.fit_transform(X_train[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
+
+        # Process categorical features
+        X_train_cat = np.zeros((len(X_train), len(categorical_cols)))
+        for i, col in enumerate(categorical_cols):
+            X_train_cat[:, i] = encoders[col].fit_transform(X_train[col])
+
+        # Combine features
+        X_train_processed = np.hstack([X_train_num, X_train_cat]) if len(categorical_cols) > 0 else X_train_num
+
+        # If test data is provided, transform it using the fitted transformers
+        if X_test is not None:
+            X_test_num = scaler.transform(X_test[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
+            X_test_cat = np.zeros((len(X_test), len(categorical_cols)))
+            for i, col in enumerate(categorical_cols):
+                X_test_cat[:, i] = encoders[col].transform(X_test[col])
+            X_test_processed = np.hstack([X_test_num, X_test_cat]) if len(categorical_cols) > 0 else X_test_num
+            return X_train_processed, X_test_processed
+
+        return X_train_processed
+
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
         """
         Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology
-
-        Args:
-            target_column: Column to predict
-            task_type: Either 'classification' or 'regression'
-            test_size: Proportion of data to use for testing
         """
         # Prepare features and target
         X_real = self.real_data.drop(columns=[target_column])
@@ -117,11 +144,16 @@ class DataEvaluator:
             X_real, y_real, test_size=test_size, random_state=42
         )
 
-        # Scale features
-        scaler = StandardScaler()
-        X_train_real_scaled = scaler.fit_transform(X_train_real)
-        X_test_real_scaled = scaler.transform(X_test_real)
-        X_synthetic_scaled = scaler.transform(X_synthetic)
+        # Preprocess features
+        X_train_real_processed, X_test_real_processed = self.preprocess_features(X_train_real, X_test_real)
+        X_synthetic_processed = self.preprocess_features(X_synthetic)
+
+        # Handle categorical target if needed
+        if task_type == 'classification':
+            target_encoder = LabelEncoder()
+            y_train_real = target_encoder.fit_transform(y_train_real)
+            y_test_real = target_encoder.transform(y_test_real)
+            y_synthetic = target_encoder.transform(y_synthetic)
 
         # Initialize models based on task type
         if task_type == 'classification':
@@ -136,13 +168,13 @@ class DataEvaluator:
             metric_name = 'r2_score'
 
         # Train and evaluate real data model
-        real_model.fit(X_train_real_scaled, y_train_real)
-        real_pred = real_model.predict(X_test_real_scaled)
+        real_model.fit(X_train_real_processed, y_train_real)
+        real_pred = real_model.predict(X_test_real_processed)
         real_score = metric_func(y_test_real, real_pred)
 
         # Train on synthetic, test on real
-        synthetic_model.fit(X_synthetic_scaled, y_synthetic)
-        synthetic_pred = synthetic_model.predict(X_test_real_scaled)
+        synthetic_model.fit(X_synthetic_processed, y_synthetic)
+        synthetic_pred = synthetic_model.predict(X_test_real_processed)
         synthetic_score = metric_func(y_test_real, synthetic_pred)
 
         # Calculate relative performance
