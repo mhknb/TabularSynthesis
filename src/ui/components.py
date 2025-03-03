@@ -59,7 +59,7 @@ def transformation_selector(column_types: dict):
         if col_type == 'Continuous':
             transformations[col] = st.selectbox(
                 f"Scaling method for '{col}'",
-                options=['minmax', 'standard'],
+                options=['standard', 'minmax'],  # Changed order to make 'standard' the default
                 key=f"transform_{col}"
             )
         elif col_type == 'Categorical':
