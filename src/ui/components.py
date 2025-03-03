@@ -32,6 +32,41 @@ def data_preview(df: pd.DataFrame):
     st.subheader("Basic Statistics")
     st.write(df.describe())
 
+def advanced_transformation_options():
+    """Create advanced transformation configuration interface"""
+    st.header("Advanced Transformation Settings")
+
+    config = {
+        'scaling_method': st.selectbox(
+            "Scaling Method",
+            options=['minmax', 'standard', 'robust', 'power', 'quantile'],
+            help="Choose the scaling method for numerical features"
+        ),
+        'encoding_method': st.selectbox(
+            "Categorical Encoding",
+            options=['label', 'onehot', 'target'],
+            help="Choose the encoding method for categorical features"
+        ),
+        'handle_missing': st.checkbox(
+            "Handle Missing Values",
+            value=True,
+            help="Automatically handle missing values in the dataset"
+        ),
+        'handle_outliers': st.checkbox(
+            "Handle Outliers",
+            value=True,
+            help="Detect and handle outliers in numerical features"
+        ),
+        'feature_engineering': st.multiselect(
+            "Feature Engineering Operations",
+            options=['polynomial', 'log', 'interaction'],
+            default=[],
+            help="Select additional feature engineering operations"
+        )
+    }
+
+    return config
+
 def column_type_selector(df: pd.DataFrame):
     """Create column type selection interface"""
     st.header("Column Configuration")
@@ -47,46 +82,6 @@ def column_type_selector(df: pd.DataFrame):
             index=['Continuous', 'Categorical', 'Datetime', 'Ordinal'].index(inferred_types[col])
         )
     return column_types
-
-def transformation_selector(column_types: dict):
-    """Create transformation selection interface"""
-    st.header("Transformation Settings")
-
-    transformations = {}
-    for col, col_type in column_types.items():
-        st.subheader(f"Column: {col}")
-
-        if col_type == 'Continuous':
-            transformations[col] = st.selectbox(
-                f"Scaling method for '{col}'",
-                options=['minmax', 'standard'],
-                key=f"transform_{col}"
-            )
-        elif col_type == 'Categorical':
-            transformations[col] = st.selectbox(
-                f"Encoding method for '{col}'",
-                options=['label', 'onehot'],
-                key=f"transform_{col}"
-            )
-
-    return transformations
-
-def model_config_section():
-    """Create model configuration interface"""
-    st.header("Model Configuration")
-
-    config = {
-        'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
-        'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
-        'epochs': st.slider("Number of Epochs", 10, 1000, 100, 10),
-        'learning_rate': st.select_slider(
-            "Learning Rate",
-            options=[0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005],
-            value=0.0002
-        )
-    }
-
-    return config
 
 def training_progress(epoch: int, losses: dict):
     """Update training progress"""
