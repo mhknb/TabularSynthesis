@@ -13,22 +13,25 @@ class DataEvaluator:
 
     def __init__(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame):
         """Initialize with real and synthetic datasets"""
-        self.real_data = real_data
-        self.synthetic_data = synthetic_data
+        self.real_data = real_data.copy()
+        self.synthetic_data = synthetic_data.copy()
 
         # Ensure all columns from real data exist in synthetic data
         missing_cols = set(real_data.columns) - set(synthetic_data.columns)
         if missing_cols:
             raise ValueError(f"Synthetic data is missing columns: {missing_cols}")
 
+        # Ensure column order matches between real and synthetic data
+        self.synthetic_data = self.synthetic_data[self.real_data.columns]
+
     def preprocess_features(self, X_train, X_test=None):
         """Preprocess features by handling numerical, ordinal, and categorical data"""
-        # Create a copy to avoid modifying original data
+        # Create copies to avoid modifying original data
         X_train = X_train.copy()
         if X_test is not None:
             X_test = X_test.copy()
 
-        # Store column order for consistent feature ordering
+        # Store original column order
         self.feature_names = X_train.columns.tolist()
 
         # Initialize transformers
@@ -39,13 +42,12 @@ class DataEvaluator:
         transformed_train = pd.DataFrame(index=X_train.index)
 
         for col in self.feature_names:
-            if X_train[col].dtype in [np.int64, np.float64] or pd.api.types.is_numeric_dtype(X_train[col]):
+            if pd.api.types.is_numeric_dtype(X_train[col]):
                 # Handle numerical and ordinal columns
                 transformed_train[col] = scaler.fit_transform(X_train[[col]]).flatten()
             else:
                 # Handle categorical columns
                 encoder = LabelEncoder()
-                # Get unique values from both train and test
                 unique_values = set(X_train[col].unique())
                 if X_test is not None:
                     unique_values.update(X_test[col].unique())
@@ -64,16 +66,15 @@ class DataEvaluator:
         if X_test is not None:
             transformed_test = pd.DataFrame(index=X_test.index)
             for col in self.feature_names:
-                if X_test[col].dtype in [np.int64, np.float64] or pd.api.types.is_numeric_dtype(X_test[col]):
+                if pd.api.types.is_numeric_dtype(X_test[col]):
                     transformed_test[col] = scaler.transform(X_test[[col]]).flatten()
                 else:
                     # Map unseen categories to 'Other'
                     X_test[col] = X_test[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
                     transformed_test[col] = encoders[col].transform(X_test[col])
+            return transformed_train.values, transformed_test.values, self.feature_names
 
-            return transformed_train.values, transformed_test.values, scaler, encoders
-
-        return transformed_train.values, scaler, encoders
+        return transformed_train.values, self.feature_names
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
         """
@@ -95,21 +96,9 @@ class DataEvaluator:
                 X_real, y_real, test_size=test_size, random_state=42
             )
 
-            # Preprocess training data and get transformers
-            X_train_real_processed, X_test_real_processed, scaler, encoders = self.preprocess_features(X_train_real, X_test_real)
-
-            # Create synthetic features DataFrame with same column order
-            X_synthetic_aligned = X_synthetic[self.feature_names]
-            X_synthetic_processed = pd.DataFrame(index=X_synthetic.index)
-
-            # Transform synthetic data using the same transformers
-            for col in self.feature_names:
-                if X_synthetic_aligned[col].dtype in [np.int64, np.float64] or pd.api.types.is_numeric_dtype(X_synthetic_aligned[col]):
-                    X_synthetic_processed[col] = scaler.transform(X_synthetic_aligned[[col]]).flatten()
-                else:
-                    # Map unseen categories to 'Other'
-                    X_synthetic_aligned[col] = X_synthetic_aligned[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
-                    X_synthetic_processed[col] = encoders[col].transform(X_synthetic_aligned[col])
+            # Preprocess features
+            X_train_real_processed, X_test_real_processed, feature_names = self.preprocess_features(X_train_real, X_test_real)
+            X_synthetic_processed, _ = self.preprocess_features(X_synthetic)
 
             # Handle categorical target variable
             if task_type == 'classification':
@@ -118,7 +107,7 @@ class DataEvaluator:
                 unique_values = set(y_real.unique())
                 unique_values.update(y_synthetic.unique())
 
-                # Add 'Other' category to encoder classes
+                # Add 'Other' category
                 all_categories = list(unique_values) + ['Other']
                 target_encoder.fit(all_categories)
 
@@ -150,7 +139,7 @@ class DataEvaluator:
             real_score = metric_func(y_test_real, real_pred)
 
             # Train on synthetic, test on real
-            synthetic_model.fit(X_synthetic_processed.values, y_synthetic)
+            synthetic_model.fit(X_synthetic_processed, y_synthetic)
             synthetic_pred = synthetic_model.predict(X_test_real_processed)
             synthetic_score = metric_func(y_test_real, synthetic_pred)
 
@@ -171,50 +160,51 @@ class DataEvaluator:
         metrics = {}
 
         # KS test for numerical and ordinal columns
-        numerical_cols = self.real_data.select_dtypes(include=[np.number]).columns
+        numerical_cols = [col for col in self.real_data.columns 
+                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
+
         for col in numerical_cols:
-            if col in self.synthetic_data.columns:  # Check if column exists in synthetic data
-                statistic, pvalue = stats.ks_2samp(
-                    self.real_data[col],
-                    self.synthetic_data[col]
-                )
-                metrics[f'ks_statistic_{col}'] = statistic
-                metrics[f'ks_pvalue_{col}'] = pvalue
+            statistic, pvalue = stats.ks_2samp(
+                self.real_data[col],
+                self.synthetic_data[col]
+            )
+            metrics[f'ks_statistic_{col}'] = statistic
+            metrics[f'ks_pvalue_{col}'] = pvalue
 
         return metrics
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
-        # Get common numerical columns between real and synthetic data
-        numerical_cols = self.real_data.select_dtypes(include=[np.number]).columns
-        common_cols = [col for col in numerical_cols if col in self.synthetic_data.columns]
+        # Get numerical columns
+        numerical_cols = [col for col in self.real_data.columns 
+                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
 
-        if not common_cols:
-            return 0.0  # Return 0 if no common numerical columns
+        if not numerical_cols:
+            return 0.0  # Return 0 if no numerical columns
 
-        real_corr = self.real_data[common_cols].corr()
-        synth_corr = self.synthetic_data[common_cols].corr()
+        real_corr = self.real_data[numerical_cols].corr()
+        synth_corr = self.synthetic_data[numerical_cols].corr()
 
         # Calculate Frobenius norm of difference
         correlation_distance = np.linalg.norm(real_corr - synth_corr)
 
         # Normalize to [0,1] range where 1 means perfect correlation similarity
-        max_possible_distance = np.sqrt(2 * len(common_cols))  # Maximum possible Frobenius norm
+        max_possible_distance = np.sqrt(2 * len(numerical_cols))  # Maximum possible Frobenius norm
         correlation_similarity = 1 - (correlation_distance / max_possible_distance)
 
         return correlation_similarity
 
     def column_statistics(self) -> pd.DataFrame:
         """Compare basic statistics for each column"""
-        # Get common numerical columns
-        numerical_cols = self.real_data.select_dtypes(include=[np.number]).columns
-        common_cols = [col for col in numerical_cols if col in self.synthetic_data.columns]
+        # Get numerical columns
+        numerical_cols = [col for col in self.real_data.columns 
+                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
 
-        if not common_cols:
-            return pd.DataFrame()  # Return empty DataFrame if no common numerical columns
+        if not numerical_cols:
+            return pd.DataFrame()  # Return empty DataFrame if no numerical columns
 
-        stats_real = self.real_data[common_cols].describe()
-        stats_synthetic = self.synthetic_data[common_cols].describe()
+        stats_real = self.real_data[numerical_cols].describe()
+        stats_synthetic = self.synthetic_data[numerical_cols].describe()
 
         comparison = pd.DataFrame({
             'real_mean': stats_real.loc['mean'],
@@ -240,12 +230,12 @@ class DataEvaluator:
 
     def plot_distributions(self, save_path: str = None):
         """Plot distribution comparisons for numerical columns"""
-        # Get common numerical columns
-        numerical_cols = self.real_data.select_dtypes(include=[np.number]).columns
-        common_cols = [col for col in numerical_cols if col in self.synthetic_data.columns]
+        # Get numerical columns
+        numerical_cols = [col for col in self.real_data.columns 
+                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
 
-        if not common_cols:
-            # Create empty figure if no common numerical columns
+        if not numerical_cols:
+            # Create empty figure if no numerical columns
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
             ax.text(0.5, 0.5, 'No numerical columns to compare', 
                    horizontalalignment='center', verticalalignment='center')
@@ -254,12 +244,12 @@ class DataEvaluator:
                 plt.close()
             return fig
 
-        n_cols = len(common_cols)
+        n_cols = len(numerical_cols)
         fig, axes = plt.subplots(n_cols, 1, figsize=(10, 5*n_cols))
         if n_cols == 1:
             axes = [axes]
 
-        for ax, col in zip(axes, common_cols):
+        for ax, col in zip(axes, numerical_cols):
             sns.kdeplot(data=self.real_data[col], label='Real', ax=ax)
             sns.kdeplot(data=self.synthetic_data[col], label='Synthetic', ax=ax)
             ax.set_title(f'Distribution Comparison - {col}')
