@@ -29,56 +29,48 @@ class DataEvaluator:
         self.synthetic_data = self.synthetic_data[self.real_data.columns]
         print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
 
-    def preprocess_features(self, X: pd.DataFrame, is_training: bool = True, scaler=None, encoders=None):
+    def preprocess_features(self, X: pd.DataFrame, feature_names=None, scalers=None, encoders=None):
         """Preprocess features while preserving column names"""
-        print(f"\nDEBUG - Preprocessing features (is_training={is_training}):")
-        print(f"Input data columns: {X.columns.tolist()}")
-        print(f"Input data types:\n{X.dtypes}")
+        print("\nDEBUG - Feature preprocessing:")
+        print(f"Input data shape: {X.shape}")
+        print(f"Input columns: {X.columns.tolist()}")
 
-        X = X.copy()
-        result_df = pd.DataFrame(index=X.index)
+        # Initialize or use existing transformers
+        if scalers is None:
+            print("Creating new scalers")
+            scalers = {col: StandardScaler() for col in X.select_dtypes(include=['int64', 'float64']).columns}
+        if encoders is None:
+            print("Creating new encoders")
+            encoders = {col: LabelEncoder() for col in X.select_dtypes(exclude=['int64', 'float64']).columns}
 
-        if is_training:
-            print("Creating new transformers for training data")
-            scaler = StandardScaler()
-            encoders = {}
-        else:
-            print("Using existing transformers for test/synthetic data")
+        # Create result DataFrame with same index
+        result = pd.DataFrame(index=X.index)
 
-        # Process each column individually to maintain feature names
-        for col in X.columns:
-            print(f"\nProcessing column: {col}")
-            print(f"Column dtype: {X[col].dtype}")
-
-            if pd.api.types.is_numeric_dtype(X[col]):
-                print(f"Handling numeric column: {col}")
-                if is_training:
-                    result_df[col] = scaler.fit_transform(X[[col]])
+        # Process numerical features
+        for col in X.select_dtypes(include=['int64', 'float64']).columns:
+            print(f"Processing numerical column: {col}")
+            if col in scalers:
+                col_data = X[[col]]
+                if scalers[col].n_samples_seen_ is None:  # Not fitted yet
+                    result[col] = scalers[col].fit_transform(col_data)
                 else:
-                    result_df[col] = scaler.transform(X[[col]])
-            else:
-                print(f"Handling categorical column: {col}")
-                if is_training:
-                    encoder = LabelEncoder()
-                    unique_values = list(X[col].unique())
-                    print(f"Unique values: {unique_values}")
-                    # Always include 'Other' in the categories
-                    if 'Other' not in unique_values:
-                        unique_values.append('Other')
-                    encoder.fit(unique_values)
-                    encoders[col] = encoder
-                    print(f"Encoder classes: {encoder.classes_}")
+                    result[col] = scalers[col].transform(col_data)
 
-                # Map unseen categories to 'Other'
+        # Process categorical features
+        for col in X.select_dtypes(exclude=['int64', 'float64']).columns:
+            print(f"Processing categorical column: {col}")
+            if col in encoders:
+                if not hasattr(encoders[col], 'classes_'):  # Not fitted yet
+                    unique_vals = list(X[col].unique()) + ['Other']
+                    encoders[col].fit(unique_vals)
+                # Handle unknown categories
                 X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
-                result_df[col] = encoders[col].transform(X[col])
+                result[col] = encoders[col].transform(X[col])
 
-        print(f"\nOutput DataFrame columns: {result_df.columns.tolist()}")
-        print(f"Output data types:\n{result_df.dtypes}")
+        print(f"Output data shape: {result.shape}")
+        print(f"Output columns: {result.columns.tolist()}")
 
-        if is_training:
-            return result_df, scaler, encoders
-        return result_df
+        return result, scalers, encoders
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
         """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
@@ -88,52 +80,37 @@ class DataEvaluator:
             print(f"Task type: {task_type}")
 
             # Prepare features and target
-            X_real = self.real_data.drop(columns=[target_column])
+            feature_cols = [col for col in self.real_data.columns if col != target_column]
+            X_real = self.real_data[feature_cols]
             y_real = self.real_data[target_column]
-            X_synthetic = self.synthetic_data.drop(columns=[target_column])
+            X_synthetic = self.synthetic_data[feature_cols]
             y_synthetic = self.synthetic_data[target_column]
 
-            print(f"\nFeature columns after dropping target:")
-            print(f"Real data: {X_real.columns.tolist()}")
-            print(f"Synthetic data: {X_synthetic.columns.tolist()}")
+            print(f"Feature columns: {feature_cols}")
 
             # Split real data
             X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
                 X_real, y_real, test_size=test_size, random_state=42
             )
 
-            print("\nPreprocessing training data...")
-            X_train_real_processed, scaler, encoders = self.preprocess_features(X_train_real, is_training=True)
-
-            print("\nPreprocessing test data...")
-            X_test_real_processed = self.preprocess_features(X_test_real, is_training=False, scaler=scaler, encoders=encoders)
-
-            print("\nPreprocessing synthetic data...")
-            X_synthetic_processed = self.preprocess_features(X_synthetic, is_training=False, scaler=scaler, encoders=encoders)
-
-            print("\nProcessed data shapes:")
-            print(f"Training data: {X_train_real_processed.shape}")
-            print(f"Test data: {X_test_real_processed.shape}")
-            print(f"Synthetic data: {X_synthetic_processed.shape}")
+            # Preprocess features
+            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
+            X_test_processed, _, _ = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)
+            X_synthetic_processed, _, _ = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)
 
             # Handle target variable
+            target_encoder = LabelEncoder()
             if task_type == 'classification':
-                print("\nProcessing classification target...")
-                target_encoder = LabelEncoder()
-                unique_values = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
-                print(f"Target unique values: {unique_values}")
-                target_encoder.fit(unique_values)
-
-                y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_values else x)
-                y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_values else x)
-                y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_values else x)
-
+                unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
+                target_encoder.fit(unique_vals)
+                y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
+                y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
+                y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
                 y_train_real = target_encoder.transform(y_train_real)
                 y_test_real = target_encoder.transform(y_test_real)
                 y_synthetic = target_encoder.transform(y_synthetic)
 
             # Initialize models
-            print("\nInitializing models...")
             if task_type == 'classification':
                 real_model = RandomForestClassifier(n_estimators=100, random_state=42)
                 synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
@@ -146,21 +123,15 @@ class DataEvaluator:
                 metric_name = 'r2_score'
 
             # Train and evaluate
-            print("\nTraining and evaluating models...")
-            real_model.fit(X_train_real_processed, y_train_real)
-            real_pred = real_model.predict(X_test_real_processed)
+            real_model.fit(X_train_processed, y_train_real)
+            real_pred = real_model.predict(X_test_processed)
             real_score = metric_func(y_test_real, real_pred)
 
             synthetic_model.fit(X_synthetic_processed, y_synthetic)
-            synthetic_pred = synthetic_model.predict(X_test_real_processed)
+            synthetic_pred = synthetic_model.predict(X_test_processed)
             synthetic_score = metric_func(y_test_real, synthetic_pred)
 
             relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
-
-            print("\nEvaluation results:")
-            print(f"Real model {metric_name}: {real_score}")
-            print(f"Synthetic model {metric_name}: {synthetic_score}")
-            print(f"Relative performance: {relative_performance}%")
 
             return {
                 f'real_model_{metric_name}': real_score,
@@ -169,7 +140,7 @@ class DataEvaluator:
             }
 
         except Exception as e:
-            print(f"\nERROR in ML utility evaluation: {str(e)}")
+            print(f"Error in ML utility evaluation: {str(e)}")
             print("Full error context:")
             import traceback
             traceback.print_exc()
@@ -178,8 +149,7 @@ class DataEvaluator:
     def statistical_similarity(self) -> dict:
         """Calculate statistical similarity metrics"""
         metrics = {}
-        numerical_cols = [col for col in self.real_data.columns 
-                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
 
         for col in numerical_cols:
             statistic, pvalue = stats.ks_2samp(
@@ -193,10 +163,8 @@ class DataEvaluator:
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
-        numerical_cols = [col for col in self.real_data.columns 
-                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
-
-        if not numerical_cols:
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        if len(numerical_cols) == 0:
             return 0.0
 
         real_corr = self.real_data[numerical_cols].corr()
@@ -209,10 +177,8 @@ class DataEvaluator:
 
     def column_statistics(self) -> pd.DataFrame:
         """Compare basic statistics for each column"""
-        numerical_cols = [col for col in self.real_data.columns 
-                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
-
-        if not numerical_cols:
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        if len(numerical_cols) == 0:
             return pd.DataFrame()
 
         stats_real = self.real_data[numerical_cols].describe()
@@ -241,10 +207,8 @@ class DataEvaluator:
 
     def plot_distributions(self, save_path: str = None):
         """Plot distribution comparisons for numerical columns"""
-        numerical_cols = [col for col in self.real_data.columns 
-                         if pd.api.types.is_numeric_dtype(self.real_data[col])]
-
-        if not numerical_cols:
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        if len(numerical_cols) == 0:
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
             ax.text(0.5, 0.5, 'No numerical columns to compare', 
                    horizontalalignment='center', verticalalignment='center')
@@ -265,19 +229,17 @@ class DataEvaluator:
             ax.legend()
 
         plt.tight_layout()
-
         if save_path:
             plt.savefig(save_path)
             plt.close()
-        else:
-            return fig
+        return fig
 
     def evaluate_all(self, target_column: str = None, task_type: str = 'classification') -> dict:
         """Run all evaluations and return comprehensive metrics"""
         evaluation = {
             'statistical_tests': self.statistical_similarity(),
             'correlation_similarity': self.correlation_similarity(),
-            'column_statistics': self.column_statistics().to_dict(),
+            'column_statistics': self.column_statistics().to_dict()
         }
 
         if target_column:
