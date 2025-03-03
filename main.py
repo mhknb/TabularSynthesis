@@ -38,6 +38,9 @@ def main():
         for issue in issues:
             st.write(f"- {issue}")
 
+    # Store original column order
+    original_columns = df.columns.tolist()
+
     # Data preview
     components.data_preview(df)
 
@@ -51,9 +54,6 @@ def main():
         for issue in issues:
             st.write(f"- {issue}")
         return
-
-    # Store original column order
-    original_columns = df.columns.tolist()
 
     # Transformation selection
     transformations = components.transformation_selector(column_types)
@@ -111,8 +111,6 @@ def main():
                     dt_features = transformer.transform_datetime(train_df[col])
                     transformed_data = pd.concat([transformed_data, dt_features], axis=1)
 
-            st.write("Debug - Transformed data columns:", transformed_data.columns.tolist())
-
             if use_modal:
                 try:
                     with st.spinner("Training model on Modal cloud..."):
@@ -158,10 +156,6 @@ def main():
 
             # Inverse transform
             result_df = pd.DataFrame()
-
-            st.write("Debug - Original columns:", original_columns)
-            st.write("Debug - Synthetic data shape:", synthetic_data.shape)
-
             col_idx = 0
             for col in original_columns:  # Use original column order
                 col_type = column_types[col]
@@ -184,8 +178,6 @@ def main():
                         dict(year=year, month=month, day=day)
                     )
                     col_idx += 4
-
-            st.write("Debug - Result DataFrame columns:", result_df.columns.tolist())
 
             # Evaluate synthetic data
             st.subheader("Data Quality Evaluation")
