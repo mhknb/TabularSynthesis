@@ -11,6 +11,7 @@ from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.utils.validation import validate_data, check_column_types
+from src.utils.evaluation import DataEvaluator
 from src.ui import components
 
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
@@ -149,6 +150,31 @@ def main():
                         dict(year=year, month=month, day=day)
                     )
                     col_idx += 4
+
+            # Evaluate synthetic data
+            st.subheader("Data Quality Evaluation")
+            evaluator = DataEvaluator(df, result_df)
+
+            # Statistical tests
+            with st.expander("Statistical Similarity Tests"):
+                stats = evaluator.statistical_similarity()
+                for col, values in stats.items():
+                    st.write(f"{col}: {values:.4f}")
+
+            # Correlation similarity
+            with st.expander("Correlation Matrix Similarity"):
+                corr_sim = evaluator.correlation_similarity()
+                st.write(f"Correlation Similarity Score: {corr_sim:.4f}")
+
+            # Column statistics
+            with st.expander("Column-wise Statistics Comparison"):
+                col_stats = evaluator.column_statistics()
+                st.dataframe(col_stats)
+
+            # Distribution plots
+            with st.expander("Distribution Comparisons"):
+                fig = evaluator.plot_distributions()
+                st.pyplot(fig)
 
             # Display results
             st.success("Synthetic data generated successfully!")
