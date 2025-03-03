@@ -29,48 +29,60 @@ class DataEvaluator:
         self.synthetic_data = self.synthetic_data[self.real_data.columns]
         print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
 
-    def preprocess_features(self, X: pd.DataFrame, feature_names=None, scalers=None, encoders=None):
+    def preprocess_features(self, X: pd.DataFrame, scalers=None, encoders=None):
         """Preprocess features while preserving column names"""
         print("\nDEBUG - Feature preprocessing:")
         print(f"Input data shape: {X.shape}")
         print(f"Input columns: {X.columns.tolist()}")
 
-        # Initialize or use existing transformers
+        # Create a copy to avoid modifying original data
+        X = X.copy()
+        result_df = pd.DataFrame(index=X.index)
+
+        # Initialize transformers if not provided
         if scalers is None:
             print("Creating new scalers")
-            scalers = {col: StandardScaler() for col in X.select_dtypes(include=['int64', 'float64']).columns}
+            scalers = {}
+            is_training = True
+        else:
+            print("Using existing scalers")
+            is_training = False
+
         if encoders is None:
             print("Creating new encoders")
-            encoders = {col: LabelEncoder() for col in X.select_dtypes(exclude=['int64', 'float64']).columns}
+            encoders = {}
 
-        # Create result DataFrame with same index
-        result = pd.DataFrame(index=X.index)
-
-        # Process numerical features
-        for col in X.select_dtypes(include=['int64', 'float64']).columns:
+        # Process numerical columns
+        numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns
+        for col in numerical_cols:
             print(f"Processing numerical column: {col}")
-            if col in scalers:
-                col_data = X[[col]]
-                if scalers[col].n_samples_seen_ is None:  # Not fitted yet
-                    result[col] = scalers[col].fit_transform(col_data)
-                else:
-                    result[col] = scalers[col].transform(col_data)
+            if col not in scalers and is_training:
+                scalers[col] = StandardScaler()
 
-        # Process categorical features
-        for col in X.select_dtypes(exclude=['int64', 'float64']).columns:
+            if is_training:
+                result_df[col] = scalers[col].fit_transform(X[[col]])
+            else:
+                result_df[col] = scalers[col].transform(X[[col]])
+
+        # Process categorical columns
+        categorical_cols = X.select_dtypes(exclude=['int64', 'float64']).columns
+        for col in categorical_cols:
             print(f"Processing categorical column: {col}")
-            if col in encoders:
-                if not hasattr(encoders[col], 'classes_'):  # Not fitted yet
-                    unique_vals = list(X[col].unique()) + ['Other']
-                    encoders[col].fit(unique_vals)
-                # Handle unknown categories
-                X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
-                result[col] = encoders[col].transform(X[col])
+            if col not in encoders:
+                print(f"Creating new encoder for {col}")
+                encoder = LabelEncoder()
+                unique_values = list(X[col].unique()) + ['Other']
+                encoder.fit(unique_values)
+                encoders[col] = encoder
 
-        print(f"Output data shape: {result.shape}")
-        print(f"Output columns: {result.columns.tolist()}")
+            # Map unseen categories to 'Other'
+            X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+            result_df[col] = encoders[col].transform(X[col])
 
-        return result, scalers, encoders
+        print(f"Output data shape: {result_df.shape}")
+        print(f"Output columns: {result_df.columns.tolist()}")
+
+        return result_df, scalers, encoders
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
         """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
@@ -95,17 +107,19 @@ class DataEvaluator:
 
             # Preprocess features
             X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
-            X_test_processed, _, _ = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)
-            X_synthetic_processed, _, _ = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)
+            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
+            X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
 
             # Handle target variable
-            target_encoder = LabelEncoder()
             if task_type == 'classification':
+                target_encoder = LabelEncoder()
                 unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
                 target_encoder.fit(unique_vals)
+
                 y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
                 y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
                 y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
+
                 y_train_real = target_encoder.transform(y_train_real)
                 y_test_real = target_encoder.transform(y_test_real)
                 y_synthetic = target_encoder.transform(y_synthetic)
@@ -122,7 +136,7 @@ class DataEvaluator:
                 metric_func = r2_score
                 metric_name = 'r2_score'
 
-            # Train and evaluate
+            # Train and evaluate models
             real_model.fit(X_train_processed, y_train_real)
             real_pred = real_model.predict(X_test_processed)
             real_score = metric_func(y_test_real, real_pred)
