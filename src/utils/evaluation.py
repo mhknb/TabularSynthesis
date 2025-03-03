@@ -113,6 +113,16 @@ class DataEvaluator:
         # Process categorical features
         X_train_cat = np.zeros((len(X_train), len(categorical_cols)))
         for i, col in enumerate(categorical_cols):
+            # Get unique values from both train and test sets
+            unique_values = set(X_train[col].unique())
+            if X_test is not None:
+                unique_values.update(X_test[col].unique())
+
+            # Handle rare categories
+            X_train[col] = X_train[col].map(lambda x: 'Other' if x not in unique_values else x)
+            if X_test is not None:
+                X_test[col] = X_test[col].map(lambda x: 'Other' if x not in unique_values else x)
+
             X_train_cat[:, i] = encoders[col].fit_transform(X_train[col])
 
         # Combine features
@@ -144,16 +154,26 @@ class DataEvaluator:
             X_real, y_real, test_size=test_size, random_state=42
         )
 
-        # Preprocess features
-        X_train_real_processed, X_test_real_processed = self.preprocess_features(X_train_real, X_test_real)
-        X_synthetic_processed = self.preprocess_features(X_synthetic)
-
-        # Handle categorical target if needed
+        # Handle categorical target variable
         if task_type == 'classification':
             target_encoder = LabelEncoder()
+            # Get all unique values from both real and synthetic data
+            unique_values = set(y_real.unique())
+            unique_values.update(y_synthetic.unique())
+
+            # Replace rare categories with 'Other'
+            y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_values else x)
+            y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_values else x)
+            y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_values else x)
+
+            # Encode target variables
             y_train_real = target_encoder.fit_transform(y_train_real)
             y_test_real = target_encoder.transform(y_test_real)
             y_synthetic = target_encoder.transform(y_synthetic)
+
+        # Preprocess features
+        X_train_real_processed, X_test_real_processed = self.preprocess_features(X_train_real, X_test_real)
+        X_synthetic_processed = self.preprocess_features(X_synthetic)
 
         # Initialize models based on task type
         if task_type == 'classification':
