@@ -52,6 +52,9 @@ def main():
             st.write(f"- {issue}")
         return
 
+    # Store original column order
+    original_columns = df.columns.tolist()
+
     # Transformation selection
     transformations = components.transformation_selector(column_types)
 
@@ -84,11 +87,12 @@ def main():
             transformer = DataTransformer()
             transformed_data = pd.DataFrame()
 
-            for col, col_type in column_types.items():
+            for col in original_columns:  # Use original column order
+                col_type = column_types[col]
                 if col_type == 'Continuous':
                     transformed_col = transformer.transform_continuous(
                         train_df[col], 
-                        transformations.get(col, 'minmax')
+                        transformations.get(col, 'standard')  # Default to standard scaling
                     )
                     transformed_data[col] = transformed_col
                 elif col_type == 'Categorical':
@@ -97,9 +101,17 @@ def main():
                         transformations.get(col, 'label')
                     )
                     transformed_data[col] = transformed_col
+                elif col_type == 'Ordinal':  # Handle ordinal as continuous
+                    transformed_col = transformer.transform_continuous(
+                        train_df[col], 
+                        transformations.get(col, 'standard')
+                    )
+                    transformed_data[col] = transformed_col
                 elif col_type == 'Datetime':
                     dt_features = transformer.transform_datetime(train_df[col])
                     transformed_data = pd.concat([transformed_data, dt_features], axis=1)
+
+            st.write("Debug - Transformed data columns:", transformed_data.columns.tolist())
 
             if use_modal:
                 try:
@@ -146,10 +158,14 @@ def main():
 
             # Inverse transform
             result_df = pd.DataFrame()
-            col_idx = 0
 
-            for col, col_type in column_types.items():
-                if col_type == 'Continuous':
+            st.write("Debug - Original columns:", original_columns)
+            st.write("Debug - Synthetic data shape:", synthetic_data.shape)
+
+            col_idx = 0
+            for col in original_columns:  # Use original column order
+                col_type = column_types[col]
+                if col_type in ['Continuous', 'Ordinal']:
                     result_df[col] = transformer.inverse_transform_continuous(
                         pd.Series(synthetic_data[:, col_idx], name=col)
                     )
@@ -168,6 +184,8 @@ def main():
                         dict(year=year, month=month, day=day)
                     )
                     col_idx += 4
+
+            st.write("Debug - Result DataFrame columns:", result_df.columns.tolist())
 
             # Evaluate synthetic data
             st.subheader("Data Quality Evaluation")
