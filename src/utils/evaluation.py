@@ -133,7 +133,13 @@ class DataEvaluator:
             X_test_num = scaler.transform(X_test[numerical_cols]) if len(numerical_cols) > 0 else np.array([])
             X_test_cat = np.zeros((len(X_test), len(categorical_cols)))
             for i, col in enumerate(categorical_cols):
-                X_test_cat[:, i] = encoders[col].transform(X_test[col])
+                try:
+                    X_test_cat[:, i] = encoders[col].transform(X_test[col])
+                except ValueError as e:
+                    print(f"Warning: Handling unseen categories in column {col}")
+                    # Add unseen categories to 'Other'
+                    X_test[col] = X_test[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+                    X_test_cat[:, i] = encoders[col].transform(X_test[col])
             X_test_processed = np.hstack([X_test_num, X_test_cat]) if len(categorical_cols) > 0 else X_test_num
             return X_train_processed, X_test_processed
 
