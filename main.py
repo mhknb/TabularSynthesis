@@ -7,7 +7,7 @@ import torch
 import pandas as pd
 import numpy as np
 from src.data_processing.data_loader import DataLoader
-from src.data_processing.advanced_transformations import AdvancedTransformer
+from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.utils.validation import validate_data, check_column_types
@@ -50,31 +50,37 @@ def main():
             st.write(f"- {issue}")
         return
 
-    # Advanced transformation configuration
-    transform_config = components.advanced_transformation_options()
+    # Transformation selection
+    transformations = components.transformation_selector(column_types)
 
     # Model configuration
-    model_config = {
-        'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
-        'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
-        'epochs': st.slider("Number of Epochs", 10, 1000, 100, 10),
-        'learning_rate': st.select_slider(
-            "Learning Rate",
-            options=[0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005],
-            value=0.0002
-        )
-    }
+    model_config = components.model_config_section()
 
     # Add Modal training option
     use_modal = st.checkbox("Use Modal for cloud training (faster)", value=True)
 
     if st.button("Generate Synthetic Data"):
         with st.spinner("Preparing data..."):
-            # Initialize transformer
-            transformer = AdvancedTransformer()
+            # Transform data
+            transformer = DataTransformer()
+            transformed_data = pd.DataFrame()
 
-            # Apply advanced transformations
-            transformed_data = transformer.fit_transform(df, transform_config)
+            for col, col_type in column_types.items():
+                if col_type == 'Continuous':
+                    transformed_col = transformer.transform_continuous(
+                        df[col], 
+                        transformations.get(col, 'minmax')
+                    )
+                    transformed_data[col] = transformed_col
+                elif col_type == 'Categorical':
+                    transformed_col = transformer.transform_categorical(
+                        df[col], 
+                        transformations.get(col, 'label')
+                    )
+                    transformed_data[col] = transformed_col
+                elif col_type == 'Datetime':
+                    dt_features = transformer.transform_datetime(df[col])
+                    transformed_data = pd.concat([transformed_data, dt_features], axis=1)
 
             if use_modal:
                 try:
@@ -119,8 +125,30 @@ def main():
                 losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
                 synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
-            # Inverse transform the generated data
-            result_df = transformer.inverse_transform(pd.DataFrame(synthetic_data))
+            # Inverse transform
+            result_df = pd.DataFrame()
+            col_idx = 0
+
+            for col, col_type in column_types.items():
+                if col_type == 'Continuous':
+                    result_df[col] = transformer.inverse_transform_continuous(
+                        pd.Series(synthetic_data[:, col_idx], name=col)
+                    )
+                    col_idx += 1
+                elif col_type == 'Categorical':
+                    result_df[col] = transformer.inverse_transform_categorical(
+                        pd.Series(synthetic_data[:, col_idx], name=col)
+                    )
+                    col_idx += 1
+                elif col_type == 'Datetime':
+                    # Handle datetime reconstruction
+                    year = synthetic_data[:, col_idx]
+                    month = synthetic_data[:, col_idx + 1]
+                    day = synthetic_data[:, col_idx + 2]
+                    result_df[col] = pd.to_datetime(
+                        dict(year=year, month=month, day=day)
+                    )
+                    col_idx += 4
 
             # Display results
             st.success("Synthetic data generated successfully!")
