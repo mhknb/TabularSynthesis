@@ -13,6 +13,7 @@ from src.models.modal_gan import ModalGAN
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
+from sklearn.model_selection import train_test_split
 
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
@@ -60,8 +61,25 @@ def main():
     # Add Modal training option
     use_modal = st.checkbox("Use Modal for cloud training (faster)", value=True)
 
+    # Target column selection for ML evaluation
+    target_col = st.selectbox(
+        "Select target column for ML utility evaluation",
+        options=df.columns.tolist(),
+        help="This column will be used to evaluate how well the synthetic data preserves predictive relationships"
+    )
+
+    task_type = st.selectbox(
+        "Select task type",
+        options=['classification', 'regression'],
+        help="Choose 'classification' for categorical targets, 'regression' for continuous targets"
+    )
+
     if st.button("Generate Synthetic Data"):
         with st.spinner("Preparing data..."):
+            # Split data into train and test sets
+            train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+            st.info(f"Data split into {len(train_df)} training samples and {len(test_df)} test samples")
+
             # Transform data
             transformer = DataTransformer()
             transformed_data = pd.DataFrame()
@@ -69,18 +87,18 @@ def main():
             for col, col_type in column_types.items():
                 if col_type == 'Continuous':
                     transformed_col = transformer.transform_continuous(
-                        df[col], 
+                        train_df[col], 
                         transformations.get(col, 'minmax')
                     )
                     transformed_data[col] = transformed_col
                 elif col_type == 'Categorical':
                     transformed_col = transformer.transform_categorical(
-                        df[col], 
+                        train_df[col], 
                         transformations.get(col, 'label')
                     )
                     transformed_data[col] = transformed_col
                 elif col_type == 'Datetime':
-                    dt_features = transformer.transform_datetime(df[col])
+                    dt_features = transformer.transform_datetime(train_df[col])
                     transformed_data = pd.concat([transformed_data, dt_features], axis=1)
 
             if use_modal:
@@ -170,6 +188,16 @@ def main():
             with st.expander("Column-wise Statistics Comparison"):
                 col_stats = evaluator.column_statistics()
                 st.dataframe(col_stats)
+
+            # ML utility evaluation
+            with st.expander("ML Utility Evaluation (TSTR)"):
+                ml_metrics = evaluator.evaluate_ml_utility(
+                    target_column=target_col,
+                    task_type=task_type
+                )
+                st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
+                for metric, value in ml_metrics.items():
+                    st.write(f"{metric}: {value:.4f}")
 
             # Distribution plots
             with st.expander("Distribution Comparisons"):
