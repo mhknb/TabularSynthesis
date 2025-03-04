@@ -10,6 +10,7 @@ from src.data_processing.data_loader import DataLoader
 from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
+from src.models.wgan import WGAN
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
@@ -144,11 +145,22 @@ def main():
                 )
 
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                gan = TableGAN(
-                    input_dim=transformed_data.shape[1],
-                    hidden_dim=model_config['hidden_dim'],
-                    device=device
-                )
+
+                # Initialize selected model
+                if model_config['model_type'] == 'WGAN':
+                    gan = WGAN(
+                        input_dim=transformed_data.shape[1],
+                        hidden_dim=model_config['hidden_dim'],
+                        clip_value=model_config['clip_value'],
+                        n_critic=model_config['n_critic'],
+                        device=device
+                    )
+                else:  # TableGAN
+                    gan = TableGAN(
+                        input_dim=transformed_data.shape[1],
+                        hidden_dim=model_config['hidden_dim'],
+                        device=device
+                    )
 
                 st.session_state.total_epochs = model_config['epochs']
                 losses = gan.train(train_loader, model_config['epochs'], components.training_progress)

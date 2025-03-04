@@ -59,7 +59,7 @@ def transformation_selector(column_types: dict):
         if col_type == 'Continuous':
             transformations[col] = st.selectbox(
                 f"Scaling method for '{col}'",
-                options=['standard', 'minmax'],  # Changed order to make 'standard' the default
+                options=['standard', 'minmax'],
                 key=f"transform_{col}"
             )
         elif col_type == 'Categorical':
@@ -76,6 +76,11 @@ def model_config_section():
     st.header("Model Configuration")
 
     config = {
+        'model_type': st.selectbox(
+            "Select GAN Model",
+            options=['TableGAN', 'WGAN'],
+            help="Choose the type of GAN model to use for synthetic data generation"
+        ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
         'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
         'epochs': st.slider("Number of Epochs", 10, 1000, 100, 10),
@@ -86,6 +91,21 @@ def model_config_section():
         )
     }
 
+    # WGAN specific parameters
+    if config['model_type'] == 'WGAN':
+        config.update({
+            'clip_value': st.slider(
+                "Weight Clipping Value",
+                0.001, 0.1, 0.01, 0.001,
+                help="Maximum allowed weight value in the critic (WGAN specific)"
+            ),
+            'n_critic': st.slider(
+                "Number of Critic Updates",
+                1, 10, 5, 1,
+                help="Number of critic updates per generator update (WGAN specific)"
+            )
+        })
+
     return config
 
 def training_progress(epoch: int, losses: dict):
@@ -94,5 +114,9 @@ def training_progress(epoch: int, losses: dict):
     status_text = st.empty()
 
     progress_bar.progress(epoch / st.session_state.total_epochs)
-    status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
-                    f"Discriminator Loss: {losses['discriminator_loss']:.4f}")
+    if 'critic_loss' in losses:
+        status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
+                        f"Critic Loss: {losses['critic_loss']:.4f}")
+    else:
+        status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
+                        f"Discriminator Loss: {losses['discriminator_loss']:.4f}")
