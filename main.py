@@ -170,6 +170,7 @@ def main():
             if not selected_columns:
                 st.warning("You cannot exclude all columns")
     
+
     # Target column selection for ML evaluation
     st.subheader("ML Evaluation Settings")
     
@@ -187,253 +188,264 @@ def main():
 
     if st.button("Generate Synthetic Data"):
         with st.spinner("Preparing data..."):
-            # Split data into train and test sets
-            train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
-            st.info(f"Data split into {len(train_df)} training samples and {len(test_df)} test samples")
+            try:
+                # Split data into train and test sets
+                train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+                st.info(f"Data split into {len(train_df)} training samples and {len(test_df)} test samples")
 
-            # Transform data
-            transformer = DataTransformer()
-            transformed_data = pd.DataFrame()
+                # Transform data
+                transformer = DataTransformer()
+                transformed_data = pd.DataFrame()
 
-            for col in selected_columns:  # Use only selected columns
-                col_type = column_types[col]
-                if col_type == 'Continuous':
-                    transformed_col = transformer.transform_continuous(
-                        train_df[col], 
-                        transformations.get(col, 'standard')  # Default to standard scaling
-                    )
-                    transformed_data[col] = transformed_col
-                elif col_type == 'Categorical':
-                    transformed_col = transformer.transform_categorical(
-                        train_df[col], 
-                        transformations.get(col, 'label')
-                    )
-                    transformed_data[col] = transformed_col
-                elif col_type == 'Ordinal':  # Handle ordinal as continuous
-                    transformed_col = transformer.transform_continuous(
-                        train_df[col], 
-                        transformations.get(col, 'standard')
-                    )
-                    transformed_data[col] = transformed_col
-                elif col_type == 'Datetime':
-                    dt_features = transformer.transform_datetime(train_df[col])
-                    transformed_data = pd.concat([transformed_data, dt_features], axis=1)
-                
-            # If no columns were selected, display an error
-            if transformed_data.empty:
-                st.error("No columns were selected for transformation. Please select at least one column.")
-                return
+                for col in selected_columns:  # Use only selected columns
+                    try:
+                        col_type = column_types[col]
+                        if col_type == 'Continuous':
+                            transformed_col = transformer.transform_continuous(
+                                train_df[col], 
+                                transformations.get(col, 'standard')
+                            )
+                            transformed_data[col] = transformed_col
+                        elif col_type == 'Categorical':
+                            transformed_col = transformer.transform_categorical(
+                                train_df[col], 
+                                transformations.get(col, 'label')
+                            )
+                            transformed_data[col] = transformed_col
+                        elif col_type == 'Ordinal':  # Handle ordinal as continuous
+                            transformed_col = transformer.transform_continuous(
+                                train_df[col], 
+                                transformations.get(col, 'standard')
+                            )
+                            transformed_data[col] = transformed_col
+                        elif col_type == 'Datetime':
+                            dt_features = transformer.transform_datetime(train_df[col])
+                            transformed_data = pd.concat([transformed_data, dt_features], axis=1)
+                    except Exception as e:
+                        st.error(f"Error transforming column {col}: {str(e)}")
+                        return
 
-            if use_modal:
-                try:
-                    with st.spinner("Training model on Modal cloud..."):
-                        # Train on Modal
-                        losses = modal_gan.train(
-                            transformed_data,
+                # If no columns were selected or all transformations failed, display an error
+                if transformed_data.empty:
+                    st.error("No columns were successfully transformed. Please check your data and configuration.")
+                    return
+
+                st.info(f"Successfully transformed {len(transformed_data.columns)} columns")
+
+
+                if use_modal:
+                    try:
+                        with st.spinner("Training model on Modal cloud..."):
+                            # Train on Modal
+                            losses = modal_gan.train(
+                                transformed_data,
+                                input_dim=transformed_data.shape[1],
+                                hidden_dim=model_config['hidden_dim'],
+                                epochs=model_config['epochs'],
+                                batch_size=model_config['batch_size']
+                            )
+
+                            # Generate samples using Modal
+                            synthetic_data = modal_gan.generate(
+                                num_samples=len(df),
+                                input_dim=transformed_data.shape[1],
+                                hidden_dim=model_config['hidden_dim']
+                            )
+                    except Exception as e:
+                        st.error(f"Modal training failed: {str(e)}")
+                        st.info("Falling back to local training...")
+                        use_modal = False
+
+                if not use_modal:
+                    # Local training fallback
+                    train_data = torch.FloatTensor(transformed_data.values)
+                    train_loader = torch.utils.data.DataLoader(
+                        train_data, 
+                        batch_size=model_config['batch_size'],
+                        shuffle=True
+                    )
+
+                    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+                    # Initialize selected model
+                    if model_config['model_type'] == 'WGAN':
+                        gan = WGAN(
                             input_dim=transformed_data.shape[1],
                             hidden_dim=model_config['hidden_dim'],
-                            epochs=model_config['epochs'],
-                            batch_size=model_config['batch_size']
-                        )
-
-                        # Generate samples using Modal
-                        synthetic_data = modal_gan.generate(
-                            num_samples=len(df),
-                            input_dim=transformed_data.shape[1],
-                            hidden_dim=model_config['hidden_dim']
-                        )
-                except Exception as e:
-                    st.error(f"Modal training failed: {str(e)}")
-                    st.info("Falling back to local training...")
-                    use_modal = False
-
-            if not use_modal:
-                # Local training fallback
-                train_data = torch.FloatTensor(transformed_data.values)
-                train_loader = torch.utils.data.DataLoader(
-                    train_data, 
-                    batch_size=model_config['batch_size'],
-                    shuffle=True
-                )
-
-                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-                # Initialize selected model
-                if model_config['model_type'] == 'WGAN':
-                    gan = WGAN(
-                        input_dim=transformed_data.shape[1],
-                        hidden_dim=model_config['hidden_dim'],
-                        clip_value=model_config['clip_value'],
-                        n_critic=model_config['n_critic'],
-                        device=device
-                    )
-                elif model_config['model_type'] == 'CGAN':
-                    # For CGAN, we need to identify a condition column
-                    if 'condition_column' in model_config and model_config['condition_column'] in df.columns:
-                        condition_col = model_config['condition_column']
-                        # Extract condition data
-                        condition_data = transformed_data[condition_col].values.reshape(-1, 1)
-                        condition_dim = 1
-                        main_data = transformed_data.drop(columns=[condition_col])
-                        
-                        # Store specific condition values for generation
-                        if 'condition_values' in model_config and model_config['condition_values']:
-                            st.session_state['condition_values'] = model_config['condition_values']
-                            st.session_state['condition_ratios'] = model_config['condition_ratios']
-                            st.session_state['condition_encoder'] = transformer.encoders.get(condition_col)
-                            st.session_state['condition_col'] = condition_col
-                        
-                        gan = CGAN(
-                            input_dim=main_data.shape[1],
-                            condition_dim=condition_dim,
-                            hidden_dim=model_config['hidden_dim'],
+                            clip_value=model_config['clip_value'],
+                            n_critic=model_config['n_critic'],
                             device=device
                         )
-                    else:
-                        # Default to using first column as condition if not specified
-                        condition_col = df.columns[0]
-                        condition_data = transformed_data[condition_col].values.reshape(-1, 1)
-                        condition_dim = 1
-                        main_data = transformed_data.drop(columns=[condition_col])
-                        
-                        gan = CGAN(
-                            input_dim=main_data.shape[1],
-                            condition_dim=condition_dim,
-                            hidden_dim=model_config['hidden_dim'],
-                            device=device
-                        )
-                elif model_config['model_type'] == 'TVAE':
-                    gan = TVAE(
-                        input_dim=transformed_data.shape[1],
-                        hidden_dim=model_config['hidden_dim'],
-                        latent_dim=model_config['latent_dim'],
-                        device=device
-                    )
-                else:  # TableGAN
-                    gan = TableGAN(
-                        input_dim=transformed_data.shape[1],
-                        hidden_dim=model_config['hidden_dim'],
-                        device=device
-                    )
-
-                st.session_state.total_epochs = model_config['epochs']
-                losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
-                if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
-                    # Generate data based on selected condition values with their proportions
-                    condition_values = model_config['condition_values']
-                    condition_ratios = model_config['condition_ratios']
-                    encoder = transformer.encoders.get(model_config['condition_column'])
-                    
-                    total_samples = len(df)
-                    synthetic_data_list = []
-                    
-                    for value in condition_values:
-                        # Calculate how many samples to generate for this value
-                        num_samples = int(condition_ratios[value] * total_samples)
-                        if num_samples < 1:
-                            num_samples = 1
+                    elif model_config['model_type'] == 'CGAN':
+                        # For CGAN, we need to identify a condition column
+                        if 'condition_column' in model_config and model_config['condition_column'] in df.columns:
+                            condition_col = model_config['condition_column']
+                            # Extract condition data
+                            condition_data = transformed_data[condition_col].values.reshape(-1, 1)
+                            condition_dim = 1
+                            main_data = transformed_data.drop(columns=[condition_col])
                             
-                        # Encode the condition value
-                        encoded_value = encoder.transform([value])[0]
-                        condition_tensor = torch.full((num_samples, 1), encoded_value, dtype=torch.float).to(device)
+                            # Store specific condition values for generation
+                            if 'condition_values' in model_config and model_config['condition_values']:
+                                st.session_state['condition_values'] = model_config['condition_values']
+                                st.session_state['condition_ratios'] = model_config['condition_ratios']
+                                st.session_state['condition_encoder'] = transformer.encoders.get(condition_col)
+                                st.session_state['condition_col'] = condition_col
+                            
+                            gan = CGAN(
+                                input_dim=main_data.shape[1],
+                                condition_dim=condition_dim,
+                                hidden_dim=model_config['hidden_dim'],
+                                device=device
+                            )
+                        else:
+                            # Default to using first column as condition if not specified
+                            condition_col = df.columns[0]
+                            condition_data = transformed_data[condition_col].values.reshape(-1, 1)
+                            condition_dim = 1
+                            main_data = transformed_data.drop(columns=[condition_col])
+                            
+                            gan = CGAN(
+                                input_dim=main_data.shape[1],
+                                condition_dim=condition_dim,
+                                hidden_dim=model_config['hidden_dim'],
+                                device=device
+                            )
+                    elif model_config['model_type'] == 'TVAE':
+                        gan = TVAE(
+                            input_dim=transformed_data.shape[1],
+                            hidden_dim=model_config['hidden_dim'],
+                            latent_dim=model_config['latent_dim'],
+                            device=device
+                        )
+                    else:  # TableGAN
+                        gan = TableGAN(
+                            input_dim=transformed_data.shape[1],
+                            hidden_dim=model_config['hidden_dim'],
+                            device=device
+                        )
+
+                    st.session_state.total_epochs = model_config['epochs']
+                    losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
+                    if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
+                        # Generate data based on selected condition values with their proportions
+                        condition_values = model_config['condition_values']
+                        condition_ratios = model_config['condition_ratios']
+                        encoder = transformer.encoders.get(model_config['condition_column'])
                         
-                        # Generate samples for this condition
-                        value_samples = gan.generate_samples(num_samples, condition_tensor).cpu().numpy()
+                        total_samples = len(df)
+                        synthetic_data_list = []
                         
-                        # Ensure the condition column has the correct encoded value
-                        # We need to replace the last column with the encoded condition value
-                        value_samples[:, -1] = encoded_value
+                        for value in condition_values:
+                            # Calculate how many samples to generate for this value
+                            num_samples = int(condition_ratios[value] * total_samples)
+                            if num_samples < 1:
+                                num_samples = 1
+                                
+                            # Encode the condition value
+                            encoded_value = encoder.transform([value])[0]
+                            condition_tensor = torch.full((num_samples, 1), encoded_value, dtype=torch.float).to(device)
+                            
+                            # Generate samples for this condition
+                            value_samples = gan.generate_samples(num_samples, condition_tensor).cpu().numpy()
+                            
+                            # Ensure the condition column has the correct encoded value
+                            # We need to replace the last column with the encoded condition value
+                            value_samples[:, -1] = encoded_value
+                            
+                            synthetic_data_list.append(value_samples)
                         
-                        synthetic_data_list.append(value_samples)
-                    
-                    # Combine all generated samples
-                    synthetic_data = np.vstack(synthetic_data_list)
-                    
-                    # If we didn't generate exactly the requested number of samples, adjust
-                    if len(synthetic_data) != total_samples:
-                        indices = np.random.choice(len(synthetic_data), total_samples, replace=len(synthetic_data) < total_samples)
-                        synthetic_data = synthetic_data[indices]
-                else:
-                    synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
+                        # Combine all generated samples
+                        synthetic_data = np.vstack(synthetic_data_list)
+                        
+                        # If we didn't generate exactly the requested number of samples, adjust
+                        if len(synthetic_data) != total_samples:
+                            indices = np.random.choice(len(synthetic_data), total_samples, replace=len(synthetic_data) < total_samples)
+                            synthetic_data = synthetic_data[indices]
+                    else:
+                        synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
-            # Inverse transform
-            result_df = pd.DataFrame()
-            col_idx = 0
-            for col in selected_columns:  # Use only selected columns
-                col_type = column_types[col]
-                if col_type in ['Continuous', 'Ordinal']:
-                    result_df[col] = transformer.inverse_transform_continuous(
-                        pd.Series(synthetic_data[:, col_idx], name=col)
+                # Inverse transform
+                result_df = pd.DataFrame()
+                col_idx = 0
+                for col in selected_columns:  # Use only selected columns
+                    col_type = column_types[col]
+                    if col_type in ['Continuous', 'Ordinal']:
+                        result_df[col] = transformer.inverse_transform_continuous(
+                            pd.Series(synthetic_data[:, col_idx], name=col)
+                        )
+                        col_idx += 1
+                    elif col_type == 'Categorical':
+                        result_df[col] = transformer.inverse_transform_categorical(
+                            pd.Series(synthetic_data[:, col_idx], name=col)
+                        )
+                        col_idx += 1
+                    elif col_type == 'Datetime':
+                        # Handle datetime reconstruction
+                        year = synthetic_data[:, col_idx]
+                        month = synthetic_data[:, col_idx + 1]
+                        day = synthetic_data[:, col_idx + 2]
+                        result_df[col] = pd.to_datetime(
+                            dict(year=year, month=month, day=day)
+                        )
+                        col_idx += 4
+                        
+                # Add excluded columns back with empty/NaN values if they were in the original data
+                for col in original_columns:
+                    if col not in selected_columns:
+                        result_df[col] = None
+
+                # Evaluate synthetic data
+                st.subheader("Data Quality Evaluation")
+                evaluator = DataEvaluator(df, result_df)
+
+                # Statistical tests
+                with st.expander("Statistical Similarity Tests"):
+                    stats = evaluator.statistical_similarity()
+                    for col, values in stats.items():
+                        st.write(f"{col}: {values:.4f}")
+
+                # Correlation similarity
+                with st.expander("Correlation Matrix Similarity"):
+                    corr_sim = evaluator.correlation_similarity()
+                    st.write(f"Correlation Similarity Score: {corr_sim:.4f}")
+
+                # Column statistics
+                with st.expander("Column-wise Statistics Comparison"):
+                    col_stats = evaluator.column_statistics()
+                    st.dataframe(col_stats)
+
+                # ML utility evaluation
+                with st.expander("ML Utility Evaluation (TSTR)"):
+                    ml_metrics = evaluator.evaluate_ml_utility(
+                        target_column=target_col,
+                        task_type=task_type
                     )
-                    col_idx += 1
-                elif col_type == 'Categorical':
-                    result_df[col] = transformer.inverse_transform_categorical(
-                        pd.Series(synthetic_data[:, col_idx], name=col)
-                    )
-                    col_idx += 1
-                elif col_type == 'Datetime':
-                    # Handle datetime reconstruction
-                    year = synthetic_data[:, col_idx]
-                    month = synthetic_data[:, col_idx + 1]
-                    day = synthetic_data[:, col_idx + 2]
-                    result_df[col] = pd.to_datetime(
-                        dict(year=year, month=month, day=day)
-                    )
-                    col_idx += 4
-                    
-            # Add excluded columns back with empty/NaN values if they were in the original data
-            for col in original_columns:
-                if col not in selected_columns:
-                    result_df[col] = None
+                    st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
+                    for metric, value in ml_metrics.items():
+                        st.write(f"{metric}: {value:.4f}")
 
-            # Evaluate synthetic data
-            st.subheader("Data Quality Evaluation")
-            evaluator = DataEvaluator(df, result_df)
+                # Distribution plots
+                with st.expander("Distribution Comparisons"):
+                    fig = evaluator.plot_distributions()
+                    st.pyplot(fig)
 
-            # Statistical tests
-            with st.expander("Statistical Similarity Tests"):
-                stats = evaluator.statistical_similarity()
-                for col, values in stats.items():
-                    st.write(f"{col}: {values:.4f}")
+                # Display results
+                st.success("Synthetic data generated successfully!")
+                st.subheader("Generated Data Preview")
+                st.dataframe(result_df.head())
 
-            # Correlation similarity
-            with st.expander("Correlation Matrix Similarity"):
-                corr_sim = evaluator.correlation_similarity()
-                st.write(f"Correlation Similarity Score: {corr_sim:.4f}")
-
-            # Column statistics
-            with st.expander("Column-wise Statistics Comparison"):
-                col_stats = evaluator.column_statistics()
-                st.dataframe(col_stats)
-
-            # ML utility evaluation
-            with st.expander("ML Utility Evaluation (TSTR)"):
-                ml_metrics = evaluator.evaluate_ml_utility(
-                    target_column=target_col,
-                    task_type=task_type
+                # Download button
+                csv = result_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Synthetic Data",
+                    data=csv,
+                    file_name="synthetic_data.csv",
+                    mime="text/csv"
                 )
-                st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
-                for metric, value in ml_metrics.items():
-                    st.write(f"{metric}: {value:.4f}")
-
-            # Distribution plots
-            with st.expander("Distribution Comparisons"):
-                fig = evaluator.plot_distributions()
-                st.pyplot(fig)
-
-            # Display results
-            st.success("Synthetic data generated successfully!")
-            st.subheader("Generated Data Preview")
-            st.dataframe(result_df.head())
-
-            # Download button
-            csv = result_df.to_csv(index=False)
-            st.download_button(
-                label="Download Synthetic Data",
-                data=csv,
-                file_name="synthetic_data.csv",
-                mime="text/csv"
-            )
+            except Exception as e:
+                st.error(f"An error occurred during data generation: {str(e)}")
+                return
 
 def model_config_section():
     st.subheader("Model Configuration")

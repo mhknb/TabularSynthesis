@@ -17,20 +17,32 @@ class DataTransformer:
 
     def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
         """Transform continuous data using specified method with missing value handling"""
+        if data.empty:
+            raise ValueError(f"Empty data series provided for column {data.name}")
+
         # Create missing value flag if needed
         has_missing = data.isnull().any()
         if has_missing:
             self.missing_flags[data.name] = data.isnull().astype(int)
-            
+
             # Create and fit imputer (mean imputation for continuous)
             imputer = SimpleImputer(strategy='mean')
-            imputed_data = imputer.fit_transform(data.values.reshape(-1, 1)).flatten()
+            # Ensure data is reshaped properly and not empty
+            valid_data = data.values.reshape(-1, 1)
+            if len(valid_data) == 0:
+                raise ValueError(f"No valid data after reshaping for column {data.name}")
+
+            imputed_data = imputer.fit_transform(valid_data).flatten()
             self.imputers[data.name] = imputer
-            
+
             # Use imputed data for further transformations
             data_for_transform = pd.Series(imputed_data, name=data.name)
         else:
             data_for_transform = data
+
+        # Verify data is not empty after transformation
+        if data_for_transform.empty:
+            raise ValueError(f"No data available for transformation in column {data.name}")
 
         # Store original data range for this column
         self.data_ranges[data.name] = {
@@ -48,10 +60,14 @@ class DataTransformer:
             raise ValueError(f"Unknown scaling method: {method}")
 
         self.scalers[data.name] = scaler
-        return pd.Series(
-            scaler.fit_transform(data_for_transform.values.reshape(-1, 1)).flatten(),
-            name=data.name
-        )
+
+        # Ensure data is properly shaped for transformation
+        shaped_data = data_for_transform.values.reshape(-1, 1)
+        if len(shaped_data) == 0:
+            raise ValueError(f"No data available after reshaping in column {data.name}")
+
+        transformed_data = scaler.fit_transform(shaped_data).flatten()
+        return pd.Series(transformed_data, name=data.name)
 
     def transform_categorical(self, data: pd.Series, method: str = 'label') -> pd.Series:
         """Transform categorical data using specified method with missing value handling"""
