@@ -65,7 +65,7 @@ def transformation_selector(column_types: dict):
         elif col_type == 'Categorical':
             transformations[col] = st.selectbox(
                 f"Encoding method for '{col}'",
-                options=['label', 'onehot'],
+                options=['onehot', 'label'],  # Changed order to make 'onehot' the default
                 key=f"transform_{col}"
             )
 
@@ -78,12 +78,12 @@ def model_config_section():
     config = {
         'model_type': st.selectbox(
             "Select GAN Model",
-            options=['TableGAN', 'WGAN', 'CGAN'],
+            options=['TableGAN', 'WGAN'],
             help="Choose the type of GAN model to use for synthetic data generation"
         ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
         'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
-        'epochs': st.slider("Number of Epochs", 10, 4000, 100, 10),
+        'epochs': st.slider("Number of Epochs", 10, 1000, 100, 10),
         'learning_rate': st.select_slider(
             "Learning Rate",
             options=[0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005],
@@ -103,15 +103,6 @@ def model_config_section():
                 "Number of Critic Updates",
                 1, 10, 5, 1,
                 help="Number of critic updates per generator update (WGAN specific)"
-            )
-        })
-    # CGAN specific parameters
-    elif config['model_type'] == 'CGAN':
-        config.update({
-            'condition_column': st.selectbox(
-                "Condition Column",
-                options=[None] + list(st.session_state.get('uploaded_df', pd.DataFrame()).columns),
-                help="Column to use as a condition for generating data (CGAN specific)"
             )
         })
 
