@@ -88,7 +88,46 @@ def main():
     # Add Modal training option
     use_modal = st.checkbox("Use Modal for cloud training (faster)", value=True)
 
+    # Column selection for synthetic data generation
+    st.subheader("Column Selection")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        selection_mode = st.radio(
+            "Column Selection Mode",
+            options=["Use all columns", "Choose columns to include", "Choose columns to exclude"],
+            index=0,
+            help="Select which columns to use for synthetic data generation"
+        )
+    
+    selected_columns = original_columns.copy()
+    
+    if selection_mode == "Choose columns to include":
+        with col2:
+            selected_columns = st.multiselect(
+                "Select columns to include",
+                options=original_columns,
+                default=original_columns,
+                help="Only these columns will be used for synthetic data generation"
+            )
+            if not selected_columns:
+                st.warning("You must select at least one column")
+    elif selection_mode == "Choose columns to exclude":
+        with col2:
+            excluded_columns = st.multiselect(
+                "Select columns to exclude",
+                options=original_columns,
+                default=[],
+                help="These columns will be excluded from synthetic data generation"
+            )
+            selected_columns = [col for col in original_columns if col not in excluded_columns]
+            if not selected_columns:
+                st.warning("You cannot exclude all columns")
+    
     # Target column selection for ML evaluation
+    st.subheader("ML Evaluation Settings")
+    
     target_col = st.selectbox(
         "Select target column for ML utility evaluation",
         options=df.columns.tolist(),
@@ -111,7 +150,7 @@ def main():
             transformer = DataTransformer()
             transformed_data = pd.DataFrame()
 
-            for col in original_columns:  # Use original column order
+            for col in selected_columns:  # Use only selected columns
                 col_type = column_types[col]
                 if col_type == 'Continuous':
                     transformed_col = transformer.transform_continuous(
@@ -134,6 +173,11 @@ def main():
                 elif col_type == 'Datetime':
                     dt_features = transformer.transform_datetime(train_df[col])
                     transformed_data = pd.concat([transformed_data, dt_features], axis=1)
+                
+            # If no columns were selected, display an error
+            if transformed_data.empty:
+                st.error("No columns were selected for transformation. Please select at least one column.")
+                return
 
             if use_modal:
                 try:
@@ -220,7 +264,7 @@ def main():
             # Inverse transform
             result_df = pd.DataFrame()
             col_idx = 0
-            for col in original_columns:  # Use original column order
+            for col in selected_columns:  # Use only selected columns
                 col_type = column_types[col]
                 if col_type in ['Continuous', 'Ordinal']:
                     result_df[col] = transformer.inverse_transform_continuous(
@@ -241,6 +285,11 @@ def main():
                         dict(year=year, month=month, day=day)
                     )
                     col_idx += 4
+                    
+            # Add excluded columns back with empty/NaN values if they were in the original data
+            for col in original_columns:
+                if col not in selected_columns:
+                    result_df[col] = None
 
             # Evaluate synthetic data
             st.subheader("Data Quality Evaluation")
