@@ -15,13 +15,21 @@ class TableGAN(BaseGAN):
         self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
     def build_generator(self) -> nn.Module:
-        """Build generator network"""
+        """Build generator network with improved architecture"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
             nn.ReLU(),
 
-            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Linear(self.hidden_dim, self.hidden_dim * 2),
+            nn.BatchNorm1d(self.hidden_dim * 2),
+            nn.ReLU(),
+            
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2),
+            nn.BatchNorm1d(self.hidden_dim * 2),
+            nn.ReLU(),
+
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
             nn.ReLU(),
 
@@ -30,13 +38,19 @@ class TableGAN(BaseGAN):
         )
 
     def build_discriminator(self) -> nn.Module:
-        """Build discriminator network"""
+        """Build discriminator network with improved architecture"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),  # Add dropout for regularization
 
-            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Linear(self.hidden_dim, self.hidden_dim * 2),
             nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+            
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
 
             nn.Linear(self.hidden_dim, 1),
             nn.Sigmoid()

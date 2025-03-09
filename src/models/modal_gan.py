@@ -40,7 +40,15 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     patience_counter = 0
     losses = []
 
-    # Training loop with early stopping
+    # Training loop with improved early stopping and adaptive learning rate
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
+    )
+    
+    # Initialize metrics tracking
+    best_fid_score = float('inf')  # Using loss as a proxy for FID score
+    min_delta = 0.001  # Minimum improvement required
+    
     for epoch in range(epochs):
         epoch_losses = []
         for batch_idx, batch in enumerate(train_loader):
@@ -50,17 +58,33 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             # Print progress every 10 batches
             if batch_idx % 10 == 0:
                 print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
+                
+            # Add gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(gan.generator.parameters(), max_norm=1.0)
+            if hasattr(gan, 'discriminator'):
+                torch.nn.utils.clip_grad_norm_(gan.discriminator.parameters(), max_norm=1.0)
+            elif hasattr(gan, 'critic'):
+                torch.nn.utils.clip_grad_norm_(gan.critic.parameters(), max_norm=1.0)
 
         # Calculate average loss
         avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
                      for k in epoch_losses[0].keys()}
         losses.append(avg_losses)
 
-        # Early stopping check
+        # Calculate proxy metric for quality
         current_loss = sum(avg_losses.values())
-        if current_loss < best_loss:
+        
+        # Update learning rate based on performance
+        scheduler.step(current_loss)
+        
+        # Check improvement
+        is_improvement = (best_fid_score - current_loss) > min_delta
+        
+        if is_improvement:
+            best_fid_score = current_loss
             best_loss = current_loss
             patience_counter = 0
+            print(f"Epoch {epoch+1}: Improved model quality, saving model")
             # Save best model
             try:
                 torch.save(gan.state_dict(), "/model/table_gan.pt")
@@ -69,9 +93,18 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 print(f"Warning: Failed to save model: {str(e)}")
         else:
             patience_counter += 1
+            print(f"Epoch {epoch+1}: No improvement. Patience: {patience_counter}/{patience}")
             if patience_counter >= patience:
                 print(f"Early stopping triggered at epoch {epoch+1}")
                 break
+            
+        # Generate sample data every few epochs to check quality visually
+        if epoch % 5 == 0 and epoch > 0:
+            print("Generating sample data for quality check...")
+            with torch.no_grad():
+                sample_noise = torch.randn(min(10, batch_size), gan.input_dim).to(device)
+                sample_data = gan.generator(sample_noise).cpu().numpy()
+                print(f"Sample data range: {sample_data.min()} to {sample_data.max()}")
 
     return losses
 

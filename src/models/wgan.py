@@ -17,13 +17,21 @@ class WGAN(BaseGAN):
         self.c_optimizer = torch.optim.RMSprop(self.critic.parameters(), lr=0.00005)
 
     def build_generator(self) -> nn.Module:
-        """Build generator network with batch normalization"""
+        """Build generator network with enhanced architecture"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
             nn.ReLU(),
 
-            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Linear(self.hidden_dim, self.hidden_dim * 2),
+            nn.BatchNorm1d(self.hidden_dim * 2),
+            nn.ReLU(),
+            
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2),
+            nn.BatchNorm1d(self.hidden_dim * 2),
+            nn.ReLU(),
+
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
             nn.ReLU(),
 
@@ -32,12 +40,18 @@ class WGAN(BaseGAN):
         )
 
     def build_critic(self) -> nn.Module:
-        """Build critic network without batch normalization"""
+        """Build critic network with enhanced architecture"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.LeakyReLU(0.2),
 
-            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Linear(self.hidden_dim, self.hidden_dim * 2),
+            nn.LeakyReLU(0.2),
+            
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2),
+            nn.LeakyReLU(0.2),
+
+            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.LeakyReLU(0.2),
 
             nn.Linear(self.hidden_dim, 1)

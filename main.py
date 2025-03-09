@@ -155,6 +155,34 @@ def main():
                         n_critic=model_config['n_critic'],
                         device=device
                     )
+                elif model_config['model_type'] == 'CGAN':
+                    # For CGAN, we need to identify a condition column
+                    if 'condition_column' in model_config and model_config['condition_column'] in df.columns:
+                        condition_col = model_config['condition_column']
+                        # Extract condition data
+                        condition_data = transformed_data[condition_col].values.reshape(-1, 1)
+                        condition_dim = 1
+                        main_data = transformed_data.drop(columns=[condition_col])
+                        
+                        gan = CGAN(
+                            input_dim=main_data.shape[1],
+                            condition_dim=condition_dim,
+                            hidden_dim=model_config['hidden_dim'],
+                            device=device
+                        )
+                    else:
+                        # Default to using first column as condition if not specified
+                        condition_col = df.columns[0]
+                        condition_data = transformed_data[condition_col].values.reshape(-1, 1)
+                        condition_dim = 1
+                        main_data = transformed_data.drop(columns=[condition_col])
+                        
+                        gan = CGAN(
+                            input_dim=main_data.shape[1],
+                            condition_dim=condition_dim,
+                            hidden_dim=model_config['hidden_dim'],
+                            device=device
+                        )
                 else:  # TableGAN
                     gan = TableGAN(
                         input_dim=transformed_data.shape[1],
