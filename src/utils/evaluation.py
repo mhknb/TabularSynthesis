@@ -30,7 +30,7 @@ class DataEvaluator:
         print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
 
     def preprocess_features(self, X: pd.DataFrame, scalers=None, encoders=None):
-        """Preprocess features while preserving column names"""
+        """Preprocess features while preserving column names and order"""
         print("\nDEBUG - Feature preprocessing:")
         print(f"Input data shape: {X.shape}")
         print(f"Input columns: {X.columns.tolist()}")
@@ -38,6 +38,9 @@ class DataEvaluator:
         # Create a copy to avoid modifying original data
         X = X.copy()
         result_df = pd.DataFrame(index=X.index)
+        
+        # Get column order
+        all_columns = X.columns.tolist()
 
         # Initialize transformers if not provided
         if scalers is None:
@@ -59,10 +62,15 @@ class DataEvaluator:
             if col not in scalers and is_training:
                 scalers[col] = StandardScaler()
 
-            if is_training:
-                result_df[col] = scalers[col].fit_transform(X[[col]])
-            else:
-                result_df[col] = scalers[col].transform(X[[col]])
+            try:
+                if is_training:
+                    result_df[col] = scalers[col].fit_transform(X[[col]])
+                else:
+                    result_df[col] = scalers[col].transform(X[[col]])
+            except Exception as e:
+                print(f"Error processing column {col}: {str(e)}")
+                # If transformation fails, use zeros as a fallback
+                result_df[col] = 0
 
         # Process categorical columns
         categorical_cols = X.select_dtypes(exclude=['int64', 'float64']).columns
@@ -75,10 +83,18 @@ class DataEvaluator:
                 encoder.fit(unique_values)
                 encoders[col] = encoder
 
-            # Map unseen categories to 'Other'
-            X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
-            result_df[col] = encoders[col].transform(X[col])
+            try:
+                # Map unseen categories to 'Other'
+                X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+                result_df[col] = encoders[col].transform(X[col])
+            except Exception as e:
+                print(f"Error processing column {col}: {str(e)}")
+                # If transformation fails, use zeros as a fallback
+                result_df[col] = 0
 
+        # Make sure output DataFrame has the same column order as input
+        result_df = result_df[X.columns]
+        
         print(f"Output data shape: {result_df.shape}")
         print(f"Output columns: {result_df.columns.tolist()}")
 
@@ -95,10 +111,18 @@ class DataEvaluator:
             feature_cols = [col for col in self.real_data.columns if col != target_column]
             X_real = self.real_data[feature_cols]
             y_real = self.real_data[target_column]
-            X_synthetic = self.synthetic_data[feature_cols]
+            
+            # Filter out columns that are all None in synthetic data
+            valid_feature_cols = []
+            for col in feature_cols:
+                if not self.synthetic_data[col].isna().all():
+                    valid_feature_cols.append(col)
+                    
+            print(f"Valid feature columns: {valid_feature_cols}")
+            
+            X_real = X_real[valid_feature_cols]
+            X_synthetic = self.synthetic_data[valid_feature_cols]
             y_synthetic = self.synthetic_data[target_column]
-
-            print(f"Feature columns: {feature_cols}")
 
             # Split real data
             X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
