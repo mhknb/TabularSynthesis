@@ -48,28 +48,67 @@ def column_type_selector(df: pd.DataFrame):
         )
     return column_types
 
-def transformation_selector(column_types: dict):
-    """Create transformation selection interface"""
-    st.header("Transformation Settings")
+def transformation_selector(column_types):
+    """Component for selecting data transformations"""
+
+    st.subheader("Data Transformations")
 
     transformations = {}
-    for col, col_type in column_types.items():
-        st.subheader(f"Column: {col}")
 
-        if col_type == 'Continuous':
-            transformations[col] = st.selectbox(
-                f"Scaling method for '{col}'",
-                options=['standard', 'minmax'],
-                key=f"transform_{col}"
-            )
-        elif col_type == 'Categorical':
-            transformations[col] = st.selectbox(
-                f"Encoding method for '{col}'",
-                options=['label', 'onehot'],
-                key=f"transform_{col}"
-            )
+    with st.expander("Configure Transformations"):
+        for col, col_type in column_types.items():
+            if col_type == 'Continuous':
+                transformations[col] = st.selectbox(
+                    f"Transform '{col}'",
+                    options=['standard', 'minmax', 'robust', 'none'],
+                    key=f"transform_{col}"
+                )
+            elif col_type == 'Categorical':
+                transformations[col] = st.selectbox(
+                    f"Encode '{col}'",
+                    options=['label', 'onehot', 'none'],
+                    key=f"transform_{col}"
+                )
 
     return transformations
+
+def outlier_detection_config():
+    """Component for configuring outlier detection and removal"""
+
+    st.subheader("Outlier Detection")
+
+    with st.expander("Configure Outlier Detection"):
+        use_outlier_detection = st.checkbox("Detect and remove outliers", value=True,
+                                           help="Remove outliers from training data to improve model quality")
+
+        if use_outlier_detection:
+            outlier_method = st.selectbox(
+                "Outlier detection method",
+                options=['iqr', 'zscore', 'isolation_forest'],
+                help="IQR: Interquartile Range method, Z-score: Statistical method, Isolation Forest: Machine learning method"
+            )
+
+            if outlier_method == 'iqr':
+                k_value = st.slider("IQR multiplier (k)", 
+                                   min_value=1.0, max_value=3.0, value=1.5, step=0.1,
+                                   help="Higher values are more permissive (fewer outliers detected)")
+                params = {'method': outlier_method, 'k': k_value}
+
+            elif outlier_method == 'zscore':
+                z_threshold = st.slider("Z-score threshold", 
+                                       min_value=2.0, max_value=5.0, value=3.0, step=0.1,
+                                       help="Higher values are more permissive (fewer outliers detected)")
+                params = {'method': outlier_method, 'z_threshold': z_threshold}
+
+            elif outlier_method == 'isolation_forest':
+                contamination = st.slider("Contamination (expected proportion of outliers)", 
+                                         min_value=0.01, max_value=0.1, value=0.05, step=0.01,
+                                         help="Higher values detect more outliers")
+                params = {'method': outlier_method, 'contamination': contamination}
+        else:
+            params = {'method': None}
+
+    return params
 
 def model_config_section():
     """Create model configuration interface"""

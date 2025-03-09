@@ -62,6 +62,9 @@ def main():
 
     # Transformation selection
     transformations = components.transformation_selector(column_types)
+    
+    # Outlier detection configuration
+    outlier_config = components.outlier_detection_config()
 
     # Model configuration
     model_config = components.model_config_section()
@@ -87,6 +90,13 @@ def main():
             # Split data into train and test sets
             train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
             st.info(f"Data split into {len(train_df)} training samples and {len(test_df)} test samples")
+            
+            # Apply outlier detection if enabled
+            if outlier_config['method'] is not None:
+                from src.data_processing.outlier_detector import OutlierDetector
+                original_len = len(train_df)
+                train_df = OutlierDetector.remove_outliers(train_df, **outlier_config)
+                st.info(f"Outlier removal: {original_len - len(train_df)} outliers removed ({(original_len - len(train_df))/original_len*100:.2f}% of training data)")
 
             # Transform data
             transformer = DataTransformer()
@@ -242,6 +252,18 @@ def main():
             with st.expander("Column-wise Statistics Comparison"):
                 col_stats = evaluator.column_statistics()
                 st.dataframe(col_stats)
+                
+            # Outlier comparison
+            with st.expander("Outlier Comparison"):
+                outlier_stats = evaluator.outlier_comparison()
+                st.write("Percentage of outliers in real vs synthetic data:")
+                st.dataframe(outlier_stats)
+                
+                st.markdown("""
+                **Note:** The ideal synthetic data should have similar outlier percentages to real data.
+                If synthetic data has significantly more outliers, it might be producing unrealistic values.
+                If it has significantly fewer outliers, it might not be capturing the full data distribution.
+                """)
 
             # ML utility evaluation
             with st.expander("ML Utility Evaluation (TSTR)"):
