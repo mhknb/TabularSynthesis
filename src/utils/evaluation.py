@@ -166,37 +166,84 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
 
         for col in numerical_cols:
-            statistic, pvalue = stats.ks_2samp(
-                self.real_data[col],
-                self.synthetic_data[col]
-            )
-            metrics[f'ks_statistic_{col}'] = statistic
-            metrics[f'ks_pvalue_{col}'] = pvalue
+            # Skip columns where all values are None
+            if self.synthetic_data[col].isna().all() or self.real_data[col].isna().all():
+                metrics[f'ks_statistic_{col}'] = float('nan')
+                metrics[f'ks_pvalue_{col}'] = float('nan')
+                continue
+                
+            # Drop None/NaN values for the statistical test
+            real_data_clean = self.real_data[col].dropna()
+            synthetic_data_clean = self.synthetic_data[col].dropna()
+            
+            # Skip if either dataset is empty after dropping NaNs
+            if len(real_data_clean) == 0 or len(synthetic_data_clean) == 0:
+                metrics[f'ks_statistic_{col}'] = float('nan')
+                metrics[f'ks_pvalue_{col}'] = float('nan')
+                continue
+                
+            try:
+                statistic, pvalue = stats.ks_2samp(
+                    real_data_clean,
+                    synthetic_data_clean
+                )
+                metrics[f'ks_statistic_{col}'] = statistic
+                metrics[f'ks_pvalue_{col}'] = pvalue
+            except Exception as e:
+                print(f"Error in statistical test for column {col}: {str(e)}")
+                metrics[f'ks_statistic_{col}'] = float('nan')
+                metrics[f'ks_pvalue_{col}'] = float('nan')
 
         return metrics
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
+        # Get numerical columns that are not all None in both datasets
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-        if len(numerical_cols) == 0:
+        valid_cols = []
+        
+        for col in numerical_cols:
+            if not (self.synthetic_data[col].isna().all() or self.real_data[col].isna().all()):
+                valid_cols.append(col)
+                
+        if len(valid_cols) < 2:  # Need at least 2 columns for correlation
             return 0.0
 
-        real_corr = self.real_data[numerical_cols].corr()
-        synth_corr = self.synthetic_data[numerical_cols].corr()
-        correlation_distance = np.linalg.norm(real_corr - synth_corr)
-        max_possible_distance = np.sqrt(2 * len(numerical_cols))
-        correlation_similarity = 1 - (correlation_distance / max_possible_distance)
-
-        return correlation_similarity
+        # Calculate correlation matrices with valid columns only
+        try:
+            real_corr = self.real_data[valid_cols].corr()
+            synth_corr = self.synthetic_data[valid_cols].corr()
+            
+            # Handle NaN values in correlation matrices
+            real_corr = real_corr.fillna(0)
+            synth_corr = synth_corr.fillna(0)
+            
+            correlation_distance = np.linalg.norm(real_corr - synth_corr)
+            max_possible_distance = np.sqrt(2 * len(valid_cols))
+            correlation_similarity = 1 - (correlation_distance / max_possible_distance)
+            
+            return correlation_similarity
+        except Exception as e:
+            print(f"Error calculating correlation similarity: {str(e)}")
+            return 0.0
 
     def column_statistics(self) -> pd.DataFrame:
         """Compare basic statistics for each column"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         if len(numerical_cols) == 0:
             return pd.DataFrame()
+            
+        # Filter out columns that are all None in synthetic data
+        valid_cols = []
+        for col in numerical_cols:
+            if not self.synthetic_data[col].isna().all():
+                valid_cols.append(col)
+                
+        if len(valid_cols) == 0:
+            return pd.DataFrame()
 
-        stats_real = self.real_data[numerical_cols].describe()
-        stats_synthetic = self.synthetic_data[numerical_cols].describe()
+        stats_real = self.real_data[valid_cols].describe()
+        stats_synthetic = self.synthetic_data[valid_cols].describe()
 
         comparison = pd.DataFrame({
             'real_mean': stats_real.loc['mean'],
@@ -209,13 +256,24 @@ class DataEvaluator:
             'synthetic_max': stats_synthetic.loc['max']
         })
 
-        comparison['mean_diff_pct'] = np.abs(
-            (comparison['real_mean'] - comparison['synthetic_mean']) / comparison['real_mean']
-        ) * 100
+        # Handle division by zero or infinity
+        try:
+            comparison['mean_diff_pct'] = np.abs(
+                (comparison['real_mean'] - comparison['synthetic_mean']) / 
+                comparison['real_mean'].replace(0, np.nan)
+            ) * 100
+            comparison['mean_diff_pct'] = comparison['mean_diff_pct'].fillna(0)
+        except Exception:
+            comparison['mean_diff_pct'] = 0
 
-        comparison['std_diff_pct'] = np.abs(
-            (comparison['real_std'] - comparison['synthetic_std']) / comparison['real_std']
-        ) * 100
+        try:
+            comparison['std_diff_pct'] = np.abs(
+                (comparison['real_std'] - comparison['synthetic_std']) / 
+                comparison['real_std'].replace(0, np.nan)
+            ) * 100
+            comparison['std_diff_pct'] = comparison['std_diff_pct'].fillna(0)
+        except Exception:
+            comparison['std_diff_pct'] = 0
 
         return comparison
 
