@@ -191,11 +191,9 @@ def main():
                             batch_size=model_config['batch_size']
                         )
 
-                        # Generate samples using Modal
+                        # Generate samples using Modal, letting it use stored dimensions from training
                         synthetic_data = modal_gan.generate(
-                            num_samples=len(df),
-                            input_dim=transformed_data.shape[1],
-                            hidden_dim=model_config['hidden_dim']
+                            num_samples=len(df)
                         )
                 except Exception as e:
                     st.error(f"Modal training failed: {str(e)}")

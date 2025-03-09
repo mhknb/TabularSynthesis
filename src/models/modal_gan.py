@@ -3,6 +3,7 @@ import torch
 import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
+import torch.nn as nn
 
 # Define app and shared resources at module level
 app = modal.App("synthetic-data-generator")
@@ -44,11 +45,11 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
     )
-    
+
     # Initialize metrics tracking
     best_fid_score = float('inf')  # Using loss as a proxy for FID score
     min_delta = 0.001  # Minimum improvement required
-    
+
     for epoch in range(epochs):
         epoch_losses = []
         for batch_idx, batch in enumerate(train_loader):
@@ -58,7 +59,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             # Print progress every 10 batches
             if batch_idx % 10 == 0:
                 print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                
+
             # Add gradient clipping to prevent exploding gradients
             torch.nn.utils.clip_grad_norm_(gan.generator.parameters(), max_norm=1.0)
             if hasattr(gan, 'discriminator'):
@@ -73,13 +74,13 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
         # Calculate proxy metric for quality
         current_loss = sum(avg_losses.values())
-        
+
         # Update learning rate based on performance
         scheduler.step(current_loss)
-        
+
         # Check improvement
         is_improvement = (best_fid_score - current_loss) > min_delta
-        
+
         if is_improvement:
             best_fid_score = current_loss
             best_loss = current_loss
@@ -97,7 +98,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             if patience_counter >= patience:
                 print(f"Early stopping triggered at epoch {epoch+1}")
                 break
-            
+
         # Generate sample data every few epochs to check quality visually
         if epoch % 5 == 0 and epoch > 0:
             print("Generating sample data for quality check...")
@@ -141,18 +142,33 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
 class ModalGAN:
     """Class for managing Modal GAN operations"""
 
+    def __init__(self):
+        """Initialize Modal GAN interface"""
+        # Store dimensions used in training for consistency
+        self.input_dim = None
+        self.hidden_dim = None
+
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
             with app.run():
+                self.input_dim = input_dim #Store input dim
+                self.hidden_dim = hidden_dim #Store hidden dim
                 return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             if "timeout" in str(e).lower():
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
-    def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
+    def generate(self, num_samples: int, input_dim: int =None, hidden_dim: int =None) -> np.ndarray:
         """Generate synthetic samples using Modal"""
+        # Use stored dimensions if not provided
+        input_dim = input_dim if input_dim is not None else self.input_dim
+        hidden_dim = hidden_dim if hidden_dim is not None else self.hidden_dim
+
+        if input_dim is None or hidden_dim is None:
+            raise ValueError("Input and hidden dimensions must be specified or trained model must be loaded.")
+
         try:
             with app.run():
                 return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
