@@ -78,8 +78,8 @@ def model_config_section():
     config = {
         'model_type': st.selectbox(
             "Select GAN Model",
-            options=['TableGAN', 'WGAN', 'CGAN'],
-            help="Choose the type of GAN model to use for synthetic data generation"
+            options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],  # Added TVAE to options
+            help="Choose the type of model to use for synthetic data generation"
         ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
         'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
@@ -90,6 +90,17 @@ def model_config_section():
             value=0.0002
         )
     }
+
+    # TVAE specific parameters
+    if config['model_type'] == 'TVAE':
+        config['latent_dim'] = st.slider(
+            "Latent Dimension",
+            min_value=32,
+            max_value=256,
+            value=128,
+            step=32,
+            help="Dimension of the latent space for TVAE"
+        )
 
     # WGAN specific parameters
     if config['model_type'] == 'WGAN':

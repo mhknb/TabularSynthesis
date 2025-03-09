@@ -84,7 +84,7 @@ def main():
     transformations = components.transformation_selector(column_types)
 
     # Model configuration
-    model_config = components.model_config_section()
+    model_config = model_config_section()  # Use the newly defined function directly
     
     # Add condition column selector for CGAN
     if model_config['model_type'] == 'CGAN':
