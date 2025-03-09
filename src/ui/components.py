@@ -83,7 +83,7 @@ def model_config_section():
         ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
         'batch_size': st.slider("Batch Size", 16, 256, 64, 16),
-        'epochs': st.slider("Number of Epochs", 10, 1000, 100, 10),
+        'epochs': st.slider("Number of Epochs", 10, 4000, 100, 10),
         'learning_rate': st.select_slider(
             "Learning Rate",
             options=[0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005],
