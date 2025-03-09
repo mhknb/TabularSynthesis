@@ -78,7 +78,7 @@ def model_config_section():
     config = {
         'model_type': st.selectbox(
             "Select GAN Model",
-            options=['TableGAN', 'WGAN'],
+            options=['TableGAN', 'WGAN', 'CGAN'],
             help="Choose the type of GAN model to use for synthetic data generation"
         ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),

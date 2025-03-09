@@ -84,7 +84,18 @@ def main():
 
     # Model configuration
     model_config = components.model_config_section()
-
+    
+    # Add condition column selector for CGAN
+    if model_config['model_type'] == 'CGAN':
+        if 'uploaded_df' in st.session_state:
+            model_config['condition_column'] = st.selectbox(
+                "Select condition column for CGAN",
+                options=st.session_state['uploaded_df'].columns.tolist(),
+                help="This column will be used as a condition for generating data"
+            )
+        else:
+            st.warning("Please upload data first to select a condition column for CGAN")
+            
     # Add Modal training option
     use_modal = st.checkbox("Use Modal for cloud training (faster)", value=True)
 
