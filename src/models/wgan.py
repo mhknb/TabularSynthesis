@@ -15,10 +15,6 @@ class WGAN(BaseGAN):
 
         self.g_optimizer = torch.optim.RMSprop(self.generator.parameters(), lr=0.00005)
         self.c_optimizer = torch.optim.RMSprop(self.critic.parameters(), lr=0.00005)
-        
-    def build_discriminator(self) -> nn.Module:
-        """Alias for build_critic to satisfy BaseGAN interface"""
-        return self.build_critic()
 
     def build_generator(self) -> nn.Module:
         """Build generator network with enhanced architecture"""

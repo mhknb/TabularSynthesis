@@ -191,9 +191,11 @@ def main():
                             batch_size=model_config['batch_size']
                         )
 
-                        # Generate samples using Modal, letting it use stored dimensions from training
+                        # Generate samples using Modal
                         synthetic_data = modal_gan.generate(
-                            num_samples=len(df)
+                            num_samples=len(df),
+                            input_dim=transformed_data.shape[1],
+                            hidden_dim=model_config['hidden_dim']
                         )
                 except Exception as e:
                     st.error(f"Modal training failed: {str(e)}")
@@ -317,10 +319,7 @@ def main():
                 )
                 st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
                 for metric, value in ml_metrics.items():
-                    if isinstance(value, (float, int)):
-                        st.write(f"{metric}: {value:.4f}")
-                    else:
-                        st.write(f"{metric}: {value}")
+                    st.write(f"{metric}: {value:.4f}")
 
             # Distribution plots
             with st.expander("Distribution Comparisons"):

@@ -24,7 +24,7 @@ class TableGAN(BaseGAN):
             nn.Linear(self.hidden_dim, self.hidden_dim * 2),
             nn.BatchNorm1d(self.hidden_dim * 2),
             nn.ReLU(),
-
+            
             nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2),
             nn.BatchNorm1d(self.hidden_dim * 2),
             nn.ReLU(),
@@ -47,13 +47,13 @@ class TableGAN(BaseGAN):
             nn.Linear(self.hidden_dim, self.hidden_dim * 2),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
-
+            
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
 
-            nn.Linear(self.hidden_dim, 1)
-            #Removed Sigmoid, using BCEWithLogitsLoss instead.
+            nn.Linear(self.hidden_dim, 1),
+            nn.Sigmoid()
         )
 
     def train_step(self, real_data: torch.Tensor) -> dict:
@@ -67,16 +67,13 @@ class TableGAN(BaseGAN):
         label_real = torch.ones(batch_size, 1).to(self.device)
         label_fake = torch.zeros(batch_size, 1).to(self.device)
 
-        # Use BCEWithLogitsLoss which combines sigmoid and BCE
-        criterion = nn.BCEWithLogitsLoss()
-
         output_real = self.discriminator(real_data)
-        d_loss_real = criterion(output_real, label_real)
+        d_loss_real = nn.BCELoss()(output_real, label_real)
 
         noise = torch.randn(batch_size, self.input_dim).to(self.device)
         fake_data = self.generator(noise)
         output_fake = self.discriminator(fake_data.detach())
-        d_loss_fake = criterion(output_fake, label_fake)
+        d_loss_fake = nn.BCELoss()(output_fake, label_fake)
 
         d_loss = d_loss_real + d_loss_fake
         d_loss.backward()
@@ -85,7 +82,7 @@ class TableGAN(BaseGAN):
         # Train Generator
         self.g_optimizer.zero_grad()
         output_fake = self.discriminator(fake_data)
-        g_loss = criterion(output_fake, label_real)
+        g_loss = nn.BCELoss()(output_fake, label_real)
         g_loss.backward()
         self.g_optimizer.step()
 

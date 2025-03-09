@@ -3,7 +3,6 @@ import torch
 import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
-import torch.nn as nn
 
 # Define app and shared resources at module level
 app = modal.App("synthetic-data-generator")
@@ -20,235 +19,140 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
     image=image,
     timeout=1800  # Increase timeout to 30 minutes
 )
-def train_gan_remote(data, input_dim, hidden_dim, epochs, batch_size):
-    """Remote function to train GAN model on Modal"""
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    import numpy as np
-    import json
-    import os
-    
-    # Convert data to tensor
-    train_data = torch.FloatTensor(data.values)
-    
-    # Define generator based on TableGAN architecture
-    generator = nn.Sequential(
-        nn.Linear(input_dim, hidden_dim),
-        nn.BatchNorm1d(hidden_dim),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim, hidden_dim * 2),
-        nn.BatchNorm1d(hidden_dim * 2),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim * 2, hidden_dim * 2),
-        nn.BatchNorm1d(hidden_dim * 2),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim * 2, hidden_dim),
-        nn.BatchNorm1d(hidden_dim),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim, input_dim),
-        nn.Tanh()  # Output in range [-1, 1]
-    )
-    
-    # Define discriminator
-    discriminator = nn.Sequential(
-        nn.Linear(input_dim, hidden_dim),
-        nn.LeakyReLU(0.2),
-        nn.Dropout(0.3),
-        
-        nn.Linear(hidden_dim, hidden_dim * 2),
-        nn.LeakyReLU(0.2),
-        nn.Dropout(0.3),
-        
-        nn.Linear(hidden_dim * 2, hidden_dim),
-        nn.LeakyReLU(0.2),
-        nn.Dropout(0.3),
-        
-        nn.Linear(hidden_dim, 1)
-    )
-    
+def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
+    """Train GAN model using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    generator.to(device)
-    discriminator.to(device)
-    
-    # Optimizers
-    g_optimizer = optim.Adam(generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-    d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-    
-    # Loss
-    criterion = nn.BCEWithLogitsLoss()
-    
-    # Training
+    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+
+    # Convert data to tensor and optimize batch size
+    train_data = torch.FloatTensor(data.values)
+    batch_size = min(batch_size, len(train_data) // 4)  # Ensure reasonable batch size
+    train_loader = torch.utils.data.DataLoader(
+        train_data, 
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=2  # Parallelize data loading
+    )
+
+    # Initialize training metrics
+    best_loss = float('inf')
+    patience = 5
+    patience_counter = 0
     losses = []
+
+    # Training loop with improved early stopping and adaptive learning rate
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
+    )
     
-    # Save dimensions for future use
-    dims = {
-        "input_dim": input_dim,
-        "hidden_dim": hidden_dim
-    }
-    
-    # Create model directory if it doesn't exist
-    import os
-    os.makedirs('/model', exist_ok=True)
-    
-    with open('/model/dims.json', 'w') as f:
-        json.dump(dims, f)
+    # Initialize metrics tracking
+    best_fid_score = float('inf')  # Using loss as a proxy for FID score
+    min_delta = 0.001  # Minimum improvement required
     
     for epoch in range(epochs):
-        g_epoch_loss = 0
-        d_epoch_loss = 0
+        epoch_losses = []
+        for batch_idx, batch in enumerate(train_loader):
+            loss_dict = gan.train_step(batch)
+            epoch_losses.append(loss_dict)
+
+            # Print progress every 10 batches
+            if batch_idx % 10 == 0:
+                print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
+                
+            # Add gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(gan.generator.parameters(), max_norm=1.0)
+            if hasattr(gan, 'discriminator'):
+                torch.nn.utils.clip_grad_norm_(gan.discriminator.parameters(), max_norm=1.0)
+            elif hasattr(gan, 'critic'):
+                torch.nn.utils.clip_grad_norm_(gan.critic.parameters(), max_norm=1.0)
+
+        # Calculate average loss
+        avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
+                     for k in epoch_losses[0].keys()}
+        losses.append(avg_losses)
+
+        # Calculate proxy metric for quality
+        current_loss = sum(avg_losses.values())
         
-        # Shuffle data
-        indices = torch.randperm(train_data.size(0))
-        batches = [indices[i:i+batch_size] for i in range(0, len(indices), batch_size)]
+        # Update learning rate based on performance
+        scheduler.step(current_loss)
         
-        for batch_idx in batches:
-            # Get real batch
-            real_batch = train_data[batch_idx].to(device)
-            batch_size = real_batch.size(0)
-            
-            # Train discriminator
-            d_optimizer.zero_grad()
-            
-            # Real data
-            real_labels = torch.ones(batch_size, 1).to(device)
-            output_real = discriminator(real_batch)
-            d_loss_real = criterion(output_real, real_labels)
-            
-            # Fake data
-            noise = torch.randn(batch_size, input_dim).to(device)
-            fake_data = generator(noise)
-            fake_labels = torch.zeros(batch_size, 1).to(device)
-            output_fake = discriminator(fake_data.detach())
-            d_loss_fake = criterion(output_fake, fake_labels)
-            
-            # Combine losses
-            d_loss = d_loss_real + d_loss_fake
-            d_loss.backward()
-            d_optimizer.step()
-            
-            # Train generator
-            g_optimizer.zero_grad()
-            output_fake = discriminator(fake_data)
-            g_loss = criterion(output_fake, real_labels)  # We want the discriminator to think these are real
-            g_loss.backward()
-            g_optimizer.step()
-            
-            g_epoch_loss += g_loss.item() * batch_size
-            d_epoch_loss += d_loss.item() * batch_size
+        # Check improvement
+        is_improvement = (best_fid_score - current_loss) > min_delta
         
-        g_epoch_loss /= len(train_data)
-        d_epoch_loss /= len(train_data)
-        losses.append((g_epoch_loss, d_epoch_loss))
-        print(f"Epoch {epoch+1}/{epochs}, G Loss: {g_epoch_loss:.4f}, D Loss: {d_epoch_loss:.4f}")
-    
-    # Save the model
-    torch.save(generator.state_dict(), '/model/generator.pth')
-    torch.save(discriminator.state_dict(), '/model/discriminator.pth')
-    
+        if is_improvement:
+            best_fid_score = current_loss
+            best_loss = current_loss
+            patience_counter = 0
+            print(f"Epoch {epoch+1}: Improved model quality, saving model")
+            # Save best model
+            try:
+                torch.save(gan.state_dict(), "/model/table_gan.pt")
+                volume.commit()
+            except Exception as e:
+                print(f"Warning: Failed to save model: {str(e)}")
+        else:
+            patience_counter += 1
+            print(f"Epoch {epoch+1}: No improvement. Patience: {patience_counter}/{patience}")
+            if patience_counter >= patience:
+                print(f"Early stopping triggered at epoch {epoch+1}")
+                break
+            
+        # Generate sample data every few epochs to check quality visually
+        if epoch % 5 == 0 and epoch > 0:
+            print("Generating sample data for quality check...")
+            with torch.no_grad():
+                sample_noise = torch.randn(min(10, batch_size), gan.input_dim).to(device)
+                sample_data = gan.generator(sample_noise).cpu().numpy()
+                print(f"Sample data range: {sample_data.min()} to {sample_data.max()}")
+
     return losses
 
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=image
+    image=image,
+    timeout=600  # 10 minutes timeout for generation
 )
-def generate_samples_remote(num_samples, input_dim=None, hidden_dim=None):
-    """Remote function to generate samples using trained GAN"""
-    import torch
-    import torch.nn as nn
-    import json
-    import os
-
-    # If dimensions not provided, load from saved file
-    if input_dim is None or hidden_dim is None:
-        try:
-            with open('/model/dims.json', 'r') as f:
-                dims = json.load(f)
-                input_dim = dims.get('input_dim')
-                hidden_dim = dims.get('hidden_dim')
-
-            if input_dim is None or hidden_dim is None:
-                raise ValueError("Could not load dimensions from saved file")
-        except Exception as e:
-            raise RuntimeError(f"Failed to load model dimensions: {str(e)}")
-
-    # Define generator with same architecture as training
-    generator = nn.Sequential(
-        nn.Linear(input_dim, hidden_dim),
-        nn.BatchNorm1d(hidden_dim),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim, hidden_dim * 2),
-        nn.BatchNorm1d(hidden_dim * 2),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim * 2, hidden_dim * 2),
-        nn.BatchNorm1d(hidden_dim * 2),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim * 2, hidden_dim),
-        nn.BatchNorm1d(hidden_dim),
-        nn.ReLU(),
-        
-        nn.Linear(hidden_dim, input_dim),
-        nn.Tanh()
-    )
-    
+def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
+    """Generate synthetic samples using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    generator.to(device)
-    
-    # Load the model
+    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+
     try:
-        model_path = '/model/generator.pth'
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"Model file not found at {model_path}")
-        generator.load_state_dict(torch.load(model_path))
+        gan.load_state_dict(torch.load("/model/table_gan.pt"))
     except Exception as e:
-        raise RuntimeError(f"Failed to load model: {str(e)}")
-    
-    generator.eval()
-    
+        raise ValueError(f"Failed to load model: {str(e)}")
+
+    # Generate in batches to avoid memory issues
+    batch_size = 1000
+    num_batches = (num_samples + batch_size - 1) // batch_size
+    synthetic_data_list = []
+
     with torch.no_grad():
-        noise = torch.randn(num_samples, input_dim).to(device)
-        fake_data = generator(noise).cpu().numpy()
-    
-    return fake_data
+        for i in range(num_batches):
+            current_batch_size = min(batch_size, num_samples - i * batch_size)
+            noise = torch.randn(current_batch_size, input_dim).to(device)
+            batch_data = gan.generator(noise)
+            synthetic_data_list.append(batch_data.cpu().numpy())
+
+        return np.concatenate(synthetic_data_list)
 
 class ModalGAN:
     """Class for managing Modal GAN operations"""
-
-    def __init__(self):
-        """Initialize Modal GAN interface"""
-        # Store dimensions used in training for consistency
-        self.input_dim = None
-        self.hidden_dim = None
 
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
             with app.run():
-                self.input_dim = input_dim #Store input dim
-                self.hidden_dim = hidden_dim #Store hidden dim
                 return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             if "timeout" in str(e).lower():
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
-    def generate(self, num_samples: int, input_dim: int =None, hidden_dim: int =None) -> np.ndarray:
+    def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
-        # Use stored dimensions if not provided
-        input_dim = input_dim if input_dim is not None else self.input_dim
-        hidden_dim = hidden_dim if hidden_dim is not None else self.hidden_dim
-
-        if input_dim is None or hidden_dim is None:
-            raise ValueError("Input and hidden dimensions must be specified or trained model must be loaded.")
-
         try:
             with app.run():
                 return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
