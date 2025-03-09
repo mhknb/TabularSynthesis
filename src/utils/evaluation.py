@@ -230,36 +230,6 @@ class DataEvaluator:
                 plt.savefig(save_path)
                 plt.close()
             return fig
-                
-    def outlier_comparison(self):
-        """Compare outlier statistics between real and synthetic data"""
-        from src.data_processing.outlier_detector import OutlierDetector
-        
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-        if len(numerical_cols) == 0:
-            return pd.DataFrame()
-            
-        # Get outlier stats for real data using different methods
-        real_iqr = OutlierDetector.detect_iqr_outliers(self.real_data, numerical_cols)
-        real_zscore = OutlierDetector.detect_statistical_outliers(self.real_data, numerical_cols)
-        real_iforest = OutlierDetector.detect_isolation_forest_outliers(self.real_data, numerical_cols)
-        
-        # Get outlier stats for synthetic data
-        synth_iqr = OutlierDetector.detect_iqr_outliers(self.synthetic_data, numerical_cols)
-        synth_zscore = OutlierDetector.detect_statistical_outliers(self.synthetic_data, numerical_cols)
-        synth_iforest = OutlierDetector.detect_isolation_forest_outliers(self.synthetic_data, numerical_cols)
-        
-        # Calculate outlier percentages
-        comparison = pd.DataFrame({
-            'real_iqr_outliers_pct': [real_iqr['is_outlier'].mean() * 100],
-            'synthetic_iqr_outliers_pct': [synth_iqr['is_outlier'].mean() * 100],
-            'real_zscore_outliers_pct': [real_zscore['is_outlier'].mean() * 100],
-            'synthetic_zscore_outliers_pct': [synth_zscore['is_outlier'].mean() * 100],
-            'real_iforest_outliers_pct': [real_iforest['is_outlier'].mean() * 100],
-            'synthetic_iforest_outliers_pct': [synth_iforest['is_outlier'].mean() * 100]
-        })
-        
-        return comparison
 
         n_cols = len(numerical_cols)
         fig, axes = plt.subplots(n_cols, 1, figsize=(10, 5*n_cols))
