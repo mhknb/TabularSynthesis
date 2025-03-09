@@ -91,7 +91,12 @@ def train_gan_remote(data, input_dim, hidden_dim, epochs, batch_size):
         "input_dim": input_dim,
         "hidden_dim": hidden_dim
     }
-    with open('/model/dims.json', 'w') as f:
+    
+    # Create model directory if it doesn't exist
+    import os
+    os.makedirs('/tmp/model', exist_ok=True)
+    
+    with open('/tmp/model/dims.json', 'w') as f:
         json.dump(dims, f)
     
     for epoch in range(epochs):
@@ -143,8 +148,8 @@ def train_gan_remote(data, input_dim, hidden_dim, epochs, batch_size):
         print(f"Epoch {epoch+1}/{epochs}, G Loss: {g_epoch_loss:.4f}, D Loss: {d_epoch_loss:.4f}")
     
     # Save the model
-    torch.save(generator.state_dict(), '/model/generator.pth')
-    torch.save(discriminator.state_dict(), '/model/discriminator.pth')
+    torch.save(generator.state_dict(), '/tmp/model/generator.pth')
+    torch.save(discriminator.state_dict(), '/tmp/model/discriminator.pth')
     
     return losses
 
@@ -163,7 +168,7 @@ def generate_samples_remote(num_samples, input_dim=None, hidden_dim=None):
     # If dimensions not provided, load from saved file
     if input_dim is None or hidden_dim is None:
         try:
-            with open('/model/dims.json', 'r') as f:
+            with open('/tmp/model/dims.json', 'r') as f:
                 dims = json.load(f)
                 input_dim = dims.get('input_dim')
                 hidden_dim = dims.get('hidden_dim')
@@ -200,7 +205,11 @@ def generate_samples_remote(num_samples, input_dim=None, hidden_dim=None):
     
     # Load the model
     try:
-        generator.load_state_dict(torch.load('/model/generator.pth'))
+        import os
+        model_path = '/tmp/model/generator.pth'
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at {model_path}")
+        generator.load_state_dict(torch.load(model_path))
     except Exception as e:
         raise RuntimeError(f"Failed to load model: {str(e)}")
     
