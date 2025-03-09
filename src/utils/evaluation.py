@@ -38,7 +38,7 @@ class DataEvaluator:
         # Create a copy to avoid modifying original data
         X = X.copy()
         result_df = pd.DataFrame(index=X.index)
-        
+
         # Get column order
         all_columns = X.columns.tolist()
 
@@ -94,7 +94,7 @@ class DataEvaluator:
 
         # Make sure output DataFrame has the same column order as input
         result_df = result_df[X.columns]
-        
+
         print(f"Output data shape: {result_df.shape}")
         print(f"Output columns: {result_df.columns.tolist()}")
 
@@ -111,18 +111,32 @@ class DataEvaluator:
             feature_cols = [col for col in self.real_data.columns if col != target_column]
             X_real = self.real_data[feature_cols]
             y_real = self.real_data[target_column]
-            
+
             # Filter out columns that are all None in synthetic data
-            valid_feature_cols = []
-            for col in feature_cols:
-                if not self.synthetic_data[col].isna().all():
-                    valid_feature_cols.append(col)
-                    
+            valid_feature_cols = [col for col in feature_cols 
+                                if not self.synthetic_data[col].isna().all()]
             print(f"Valid feature columns: {valid_feature_cols}")
-            
+
             X_real = X_real[valid_feature_cols]
             X_synthetic = self.synthetic_data[valid_feature_cols]
             y_synthetic = self.synthetic_data[target_column]
+
+            # Remove rows with NaN values in both features and target
+            valid_real_mask = ~(X_real.isna().any(axis=1) | y_real.isna())
+            valid_synthetic_mask = ~(X_synthetic.isna().any(axis=1) | y_synthetic.isna())
+
+            X_real = X_real[valid_real_mask]
+            y_real = y_real[valid_real_mask]
+            X_synthetic = X_synthetic[valid_synthetic_mask]
+            y_synthetic = y_synthetic[valid_synthetic_mask]
+
+            # Check if we have enough data after cleaning
+            if len(X_real) < 10 or len(X_synthetic) < 10:
+                return {
+                    'error': 'Insufficient data after removing missing values',
+                    'real_rows': len(X_real),
+                    'synthetic_rows': len(X_synthetic)
+                }
 
             # Split real data
             X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
@@ -137,16 +151,29 @@ class DataEvaluator:
             # Handle target variable
             if task_type == 'classification':
                 target_encoder = LabelEncoder()
-                unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
+                # Include synthetic data values in fitting
+                all_target_values = pd.concat([y_real, y_synthetic])
+                unique_vals = list(set(all_target_values.unique()) | {'Other'})
                 target_encoder.fit(unique_vals)
 
-                y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
-                y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
-                y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
+                y_train_real = pd.Series(y_train_real).map(lambda x: x if x in unique_vals else 'Other')
+                y_test_real = pd.Series(y_test_real).map(lambda x: x if x in unique_vals else 'Other')
+                y_synthetic = pd.Series(y_synthetic).map(lambda x: x if x in unique_vals else 'Other')
 
                 y_train_real = target_encoder.transform(y_train_real)
                 y_test_real = target_encoder.transform(y_test_real)
                 y_synthetic = target_encoder.transform(y_synthetic)
+            else:  # regression
+                # For regression, ensure target values are numeric
+                y_train_real = pd.to_numeric(y_train_real, errors='coerce')
+                y_test_real = pd.to_numeric(y_test_real, errors='coerce')
+                y_synthetic = pd.to_numeric(y_synthetic, errors='coerce')
+
+                # Remove any remaining NaN values
+                valid_mask = ~(y_train_real.isna() | y_test_real.isna() | y_synthetic.isna())
+                y_train_real = y_train_real[valid_mask]
+                y_test_real = y_test_real[valid_mask]
+                y_synthetic = y_synthetic[valid_mask]
 
             # Initialize models
             if task_type == 'classification':
@@ -182,7 +209,10 @@ class DataEvaluator:
             print("Full error context:")
             import traceback
             traceback.print_exc()
-            raise
+            return {
+                'error': str(e),
+                'trace': traceback.format_exc()
+            }
 
     def statistical_similarity(self) -> dict:
         """Calculate statistical similarity metrics"""
@@ -195,17 +225,17 @@ class DataEvaluator:
                 metrics[f'ks_statistic_{col}'] = float('nan')
                 metrics[f'ks_pvalue_{col}'] = float('nan')
                 continue
-                
+
             # Drop None/NaN values for the statistical test
             real_data_clean = self.real_data[col].dropna()
             synthetic_data_clean = self.synthetic_data[col].dropna()
-            
+
             # Skip if either dataset is empty after dropping NaNs
             if len(real_data_clean) == 0 or len(synthetic_data_clean) == 0:
                 metrics[f'ks_statistic_{col}'] = float('nan')
                 metrics[f'ks_pvalue_{col}'] = float('nan')
                 continue
-                
+
             try:
                 statistic, pvalue = stats.ks_2samp(
                     real_data_clean,
@@ -225,11 +255,11 @@ class DataEvaluator:
         # Get numerical columns that are not all None in both datasets
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         valid_cols = []
-        
+
         for col in numerical_cols:
             if not (self.synthetic_data[col].isna().all() or self.real_data[col].isna().all()):
                 valid_cols.append(col)
-                
+
         if len(valid_cols) < 2:  # Need at least 2 columns for correlation
             return 0.0
 
@@ -237,15 +267,15 @@ class DataEvaluator:
         try:
             real_corr = self.real_data[valid_cols].corr()
             synth_corr = self.synthetic_data[valid_cols].corr()
-            
+
             # Handle NaN values in correlation matrices
             real_corr = real_corr.fillna(0)
             synth_corr = synth_corr.fillna(0)
-            
+
             correlation_distance = np.linalg.norm(real_corr - synth_corr)
             max_possible_distance = np.sqrt(2 * len(valid_cols))
             correlation_similarity = 1 - (correlation_distance / max_possible_distance)
-            
+
             return correlation_similarity
         except Exception as e:
             print(f"Error calculating correlation similarity: {str(e)}")
@@ -256,13 +286,13 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         if len(numerical_cols) == 0:
             return pd.DataFrame()
-            
+
         # Filter out columns that are all None in synthetic data
         valid_cols = []
         for col in numerical_cols:
             if not self.synthetic_data[col].isna().all():
                 valid_cols.append(col)
-                
+
         if len(valid_cols) == 0:
             return pd.DataFrame()
 
