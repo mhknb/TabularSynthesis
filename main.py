@@ -331,6 +331,11 @@ def main():
                         
                         # Generate samples for this condition
                         value_samples = gan.generate_samples(num_samples, condition_tensor).cpu().numpy()
+                        
+                        # Ensure the condition column has the correct encoded value
+                        # We need to replace the last column with the encoded condition value
+                        value_samples[:, -1] = encoded_value
+                        
                         synthetic_data_list.append(value_samples)
                     
                     # Combine all generated samples
