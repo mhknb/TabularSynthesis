@@ -12,6 +12,7 @@ from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
 from src.models.cgan import CGAN
+from src.models.tvae import TVAE
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
@@ -301,6 +302,13 @@ def main():
                             hidden_dim=model_config['hidden_dim'],
                             device=device
                         )
+                elif model_config['model_type'] == 'TVAE':
+                    gan = TVAE(
+                        input_dim=transformed_data.shape[1],
+                        hidden_dim=model_config['hidden_dim'],
+                        latent_dim=model_config['latent_dim'],
+                        device=device
+                    )
                 else:  # TableGAN
                     gan = TableGAN(
                         input_dim=transformed_data.shape[1],
@@ -426,6 +434,75 @@ def main():
                 file_name="synthetic_data.csv",
                 mime="text/csv"
             )
+
+def model_config_section():
+    st.subheader("Model Configuration")
+
+    model_config = {}
+
+    model_config['model_type'] = st.selectbox(
+        "Select Model Type",
+        options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],  # Added TVAE
+        help="Choose the type of model to use for synthetic data generation"
+    )
+
+    # Add latent dimension parameter for TVAE
+    if model_config['model_type'] == 'TVAE':
+        model_config['latent_dim'] = st.slider(
+            "Latent Dimension",
+            min_value=32,
+            max_value=256,
+            value=128,
+            step=32,
+            help="Dimension of the latent space for TVAE"
+        )
+
+    model_config['hidden_dim'] = st.slider(
+        "Hidden Dimension",
+        min_value=64,
+        max_value=512,
+        value=256,
+        step=64,
+        help="Size of hidden layers in the model"
+    )
+
+    model_config['epochs'] = st.slider(
+        "Number of Epochs",
+        min_value=10,
+        max_value=500,
+        value=100,
+        step=10,
+        help="Number of training epochs"
+    )
+
+    model_config['batch_size'] = st.slider(
+        "Batch Size",
+        min_value=32,
+        max_value=256,
+        value=64,
+        step=32,
+        help="Number of samples per training batch"
+    )
+
+    if model_config['model_type'] == 'WGAN':
+        model_config['clip_value'] = st.slider(
+            "Clip Value",
+            min_value=0.01,
+            max_value=0.1,
+            value=0.01,
+            step=0.01,
+            help="Weight clipping value for WGAN"
+        )
+        model_config['n_critic'] = st.slider(
+            "Critic Updates",
+            min_value=1,
+            max_value=10,
+            value=5,
+            step=1,
+            help="Number of critic updates per generator update"
+        )
+
+    return model_config
 
 if __name__ == "__main__":
     main()
