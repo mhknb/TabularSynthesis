@@ -317,7 +317,10 @@ def main():
                 )
                 st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
                 for metric, value in ml_metrics.items():
-                    st.write(f"{metric}: {value:.4f}")
+                    if isinstance(value, (float, int)):
+                        st.write(f"{metric}: {value:.4f}")
+                    else:
+                        st.write(f"{metric}: {value}")
 
             # Distribution plots
             with st.expander("Distribution Comparisons"):
