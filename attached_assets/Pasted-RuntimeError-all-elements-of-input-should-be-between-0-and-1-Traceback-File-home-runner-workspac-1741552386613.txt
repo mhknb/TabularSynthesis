@@ -1,0 +1,30 @@
+RuntimeError: all elements of input should be between 0 and 1
+Traceback:
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/exec_code.py", line 121, in exec_func_with_error_handling
+    result = func()
+             ^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 591, in code_to_exec
+    exec(code, module.__dict__)
+File "/home/runner/workspace/main.py", line 344, in <module>
+    main()
+File "/home/runner/workspace/main.py", line 261, in main
+    losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/src/models/base_gan.py", line 44, in train
+    loss_dict = self.train_step(batch)
+                ^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/src/models/table_gan.py", line 71, in train_step
+    d_loss_real = nn.BCELoss()(output_real, label_real)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1739, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1750, in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/torch/nn/modules/loss.py", line 699, in forward
+    return F.binary_cross_entropy(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/torch/nn/functional.py", line 3569, in binary_cross_entropy
+    return torch._C._nn.binary_cross_entropy(input, target, weight, reduction_enum)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
