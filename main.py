@@ -93,6 +93,39 @@ def main():
                 options=st.session_state['uploaded_df'].columns.tolist(),
                 help="This column will be used as a condition for generating data"
             )
+            
+            # Now add selector for specific condition values to generate
+            if 'condition_column' in model_config and model_config['condition_column']:
+                unique_values = st.session_state['uploaded_df'][model_config['condition_column']].unique().tolist()
+                model_config['condition_values'] = st.multiselect(
+                    f"Select specific values from '{model_config['condition_column']}' to generate",
+                    options=unique_values,
+                    default=unique_values[:min(3, len(unique_values))],
+                    help="CGAN will generate data only for these selected condition values"
+                )
+                
+                # Add ratio selector for each selected condition value
+                if model_config['condition_values']:
+                    st.write("Set the proportion of samples to generate for each condition value:")
+                    condition_ratios = {}
+                    total_ratio = 0
+                    
+                    cols = st.columns(min(3, len(model_config['condition_values'])))
+                    for i, value in enumerate(model_config['condition_values']):
+                        col_idx = i % len(cols)
+                        with cols[col_idx]:
+                            ratio = st.slider(
+                                f"Ratio for '{value}'",
+                                min_value=1,
+                                max_value=10,
+                                value=10 // len(model_config['condition_values']),
+                                help="Relative proportion of samples with this condition"
+                            )
+                            condition_ratios[value] = ratio
+                            total_ratio += ratio
+                    
+                    # Normalize ratios
+                    model_config['condition_ratios'] = {k: v/total_ratio for k, v in condition_ratios.items()}
         else:
             st.warning("Please upload data first to select a condition column for CGAN")
             
@@ -242,6 +275,13 @@ def main():
                         condition_dim = 1
                         main_data = transformed_data.drop(columns=[condition_col])
                         
+                        # Store specific condition values for generation
+                        if 'condition_values' in model_config and model_config['condition_values']:
+                            st.session_state['condition_values'] = model_config['condition_values']
+                            st.session_state['condition_ratios'] = model_config['condition_ratios']
+                            st.session_state['condition_encoder'] = transformer.encoders.get(condition_col)
+                            st.session_state['condition_col'] = condition_col
+                        
                         gan = CGAN(
                             input_dim=main_data.shape[1],
                             condition_dim=condition_dim,
@@ -270,7 +310,38 @@ def main():
 
                 st.session_state.total_epochs = model_config['epochs']
                 losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
-                synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
+                if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
+                    # Generate data based on selected condition values with their proportions
+                    condition_values = model_config['condition_values']
+                    condition_ratios = model_config['condition_ratios']
+                    encoder = transformer.encoders.get(model_config['condition_column'])
+                    
+                    total_samples = len(df)
+                    synthetic_data_list = []
+                    
+                    for value in condition_values:
+                        # Calculate how many samples to generate for this value
+                        num_samples = int(condition_ratios[value] * total_samples)
+                        if num_samples < 1:
+                            num_samples = 1
+                            
+                        # Encode the condition value
+                        encoded_value = encoder.transform([value])[0]
+                        condition_tensor = torch.full((num_samples, 1), encoded_value, dtype=torch.float).to(device)
+                        
+                        # Generate samples for this condition
+                        value_samples = gan.generate_samples(num_samples, condition_tensor).cpu().numpy()
+                        synthetic_data_list.append(value_samples)
+                    
+                    # Combine all generated samples
+                    synthetic_data = np.vstack(synthetic_data_list)
+                    
+                    # If we didn't generate exactly the requested number of samples, adjust
+                    if len(synthetic_data) != total_samples:
+                        indices = np.random.choice(len(synthetic_data), total_samples, replace=len(synthetic_data) < total_samples)
+                        synthetic_data = synthetic_data[indices]
+                else:
+                    synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
             # Inverse transform
             result_df = pd.DataFrame()
