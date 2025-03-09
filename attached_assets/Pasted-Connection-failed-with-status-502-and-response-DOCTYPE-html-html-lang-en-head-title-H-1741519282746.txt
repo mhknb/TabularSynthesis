@@ -1,0 +1,313 @@
+Connection failed with status 502, and response "<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Hmm... We couldn&#39;t reach this app</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=IBM+Plex+Sans">
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #1c2333;
+      font-family: "IBM Plex Sans", "sans";
+      color: #f5f9fc;
+    }
+
+    .title-box {
+      font-size: 12px;
+      inline-size: max-content;
+      max-width: 100%;
+    }
+
+    .description-box {
+      font-size: 10px;
+      inline-size: max-content;
+      max-width: 100%;
+    }
+
+    .err-box {
+      padding: 1em;
+      width: 100vw;
+      max-width: 100vw;
+      overflow: hidden;
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .ascii {
+      font-size: 6px;
+      text-align: center;
+      opacity: .8;
+    }
+
+    .eval-bot {
+      margin: 4em;
+    }
+
+    @media (max-width: 500px) {
+      .title-box {
+        font-size: 10px;
+      }
+
+      .description-box {
+        font-size: 8px;
+      }
+
+      .eval-bot {
+        margin: 1em;
+      }
+
+      .eval-bot svg {
+        width: 200px;
+      }
+
+      .message {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .repl-links {
+        font-size: 14px;
+      }
+    }
+
+    .console {
+      background-color: #0e1628;
+      color: #fff;
+      font-family: "IBM Plex Sans", "sans";
+      padding: 1em;
+      margin: 1em;
+    }
+
+    .footer-item {
+      margin: 1em;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .link-icon {
+      margin-right: 8px;
+      margin-top: 4px;
+    }
+
+    a {
+      color: #c2c8cc;
+    }
+  </style>
+
+  <script>
+    var reload_timeout = setTimeout(function () {
+      window.location.reload();
+    }, 60000);
+  </script>
+</head>
+
+<body>
+  <div class="err-box">
+    <div class="message">
+      <div class="eval-bot">
+        <pre class="ascii">
+                                  :::.                                                    
+                                :+++***++:..                                              
+                      :-=+=..:-=+**=======---:                                            
+                     -+++****+====-::-=====-::. ..   ..       ::                          
+                    .=++++++=::----------::-::::::--------===--:.:::::.                   
+                   :--==+++=-::----------======----------:-===-:::::::.                   
+                   ::--==+++-----=+++=+++++====----======--==------::                     
+                  ::::-====+++++++*************+==========---------::..                   
+                 ..:::---==++*****************+++++++++=------------:::::..               
+                ....:::-=+**********************++++++=--==========--:.....               
+                 ..:::-++*********+**************+++++++--+***++++==:      .::..          
+                :=+*+=+++****++==+++*+++++++***+++++++++***********+=. .::-====-::--:     
+             .:-=++=====+++*++====++++++++++++++++++=+++*************+=======++++==--.    
+           .--==-----=====++=============+=+++=====++++****************+=+=========--:.   
+     . .  :--====------=======--==========+++=====++++****+*****+****++===------====-.    
+  ...::::::::---====----------::::::-----========++++++++++***++++++++===--:::::-----.    
+   ...::::::..:::::---::::::::::...::::::::-----=++++++++++****+++++++===-:::::::::---:   
+      .::::.....:::::::::::................:::::=++++++++++*****++++++=====---:::::---::. 
+         ......   .........     ...............::=+==++++++++++++++============-----::...:
+                                    ........::---===-===============------=---:::::::::...
+                                    .......................::::::::---------:.   ..       
+                                            ....................::::::--:::::.            
+                                                             ...........                  
+                                                                                          
+          </pre>
+      </div>
+      <div class="title-box">
+        <h1>Hmm... We couldn&#39;t reach this app</h1>
+      </div>
+      <div class="description-box">
+        <h2>Make sure this app has a port open and is ready to receive HTTP traffic.</h2>
+      </div>
+    </div>
+    
+    <div>
+      <div class="footer-item">
+        <div class="link-icon">
+          <svg width="16" height="16"…
+&lt;html lang=&quot;en&quot;&gt;
+
+&lt;head&gt;
+&lt;title&gt;Hmm... We couldn&amp;#39;t reach this app&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;https://fonts.googleapis.com/css?family=IBM+Plex+Sans&quot;&gt;
+&lt;style&gt;
+body {
+margin: 0;
+height: 100vh;
+display: flex;
+justify-content: center;
+align-items: center;
+background: #1c2333;
+font-family: &quot;IBM Plex Sans&quot;, &quot;sans&quot;;
+color: #f5f9fc;
+}
+
+.title-box {
+font-size: 12px;
+inline-size: max-content;
+max-width: 100%;
+}
+
+.description-box {
+font-size: 10px;
+inline-size: max-content;
+max-width: 100%;
+}
+
+.err-box {
+padding: 1em;
+width: 100vw;
+max-width: 100vw;
+overflow: hidden;
+}
+
+.message {
+display: flex;
+flex-direction: column;
+align-items: center;
+}
+
+.ascii {
+font-size: 6px;
+text-align: center;
+opacity: .8;
+}
+
+.eval-bot {
+margin: 4em;
+}
+
+@media (max-width: 500px) {
+.title-box {
+font-size: 10px;
+}
+
+.description-box {
+font-size: 8px;
+}
+
+.eval-bot {
+margin: 1em;
+}
+
+.eval-bot svg {
+width: 200px;
+}
+
+.message {
+flex-direction: column;
+align-items: center;
+}
+
+.repl-links {
+font-size: 14px;
+}
+}
+
+.console {
+background-color: #0e1628;
+color: #fff;
+font-family: &quot;IBM Plex Sans&quot;, &quot;sans&quot;;
+padding: 1em;
+margin: 1em;
+}
+
+.footer-item {
+margin: 1em;
+display: flex;
+justify-content: center;
+align-items: center;
+}
+
+.link-icon {
+margin-right: 8px;
+margin-top: 4px;
+}
+
+a {
+color: #c2c8cc;
+}
+&lt;/style&gt;
+
+&lt;script&gt;
+var reload_timeout = setTimeout(function () {
+window.location.reload();
+}, 60000);
+&lt;/script&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+&lt;div class=&quot;err-box&quot;&gt;
+&lt;div class=&quot;message&quot;&gt;
+&lt;div class=&quot;eval-bot&quot;&gt;
+&lt;pre class=&quot;ascii&quot;&gt;
+:::.
+:+++***++:..
+:-=+=..:-=+**=======---:
+-+++****+====-::-=====-::. .. .. ::
+.=++++++=::----------::-::::::--------===--:.:::::.
+:--==+++=-::----------======----------:-===-:::::::.
+::--==+++-----=+++=+++++====----======--==------::
+::::-====+++++++*************+==========---------::..
+..:::---==++*****************+++++++++=------------:::::..
+....:::-=+**********************++++++=--==========--:.....
+..:::-++*********+**************+++++++--+***++++==: .::..
+:=+*+=+++****++==+++*+++++++***+++++++++***********+=. .::-====-::--:
+.:-=++=====+++*++====++++++++++++++++++=+++*************+=======++++==--.
+.--==-----=====++=============+=+++=====++++****************+=+=========--:.
+. . :--====------=======--==========+++=====++++****+*****+****++===------====-.
+...::::::::---====----------::::::-----========++++++++++***++++++++===--:::::-----.
+...::::::..:::::---::::::::::...::::::::-----=++++++++++****+++++++===-:::::::::---:
+.::::.....:::::::::::................:::::=++++++++++*****++++++=====---:::::---::.
+...... ......... ...............::=+==++++++++++++++============-----::...:
+........::---===-===============------=---:::::::::...
+.......................::::::::---------:. ..
+....................::::::--:::::.
+...........
+
+&lt;/pre&gt;
+&lt;/div&gt;
+&lt;div class=&quot;title-box&quot;&gt;
+&lt;h1&gt;Hmm... We couldn&amp;#39;t reach this app&lt;/h1&gt;
+&lt;/div&gt;
+&lt;div class=&quot;description-box&quot;&gt;
+&lt;h2&gt;Make sure this app has a port open and is ready to receive HTTP traffic.&lt;/h2&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div&gt;
+&lt;div class=&quot;footer-item&quot;&gt;
+&lt;div class=&quot;link-icon&quot;&gt;
+&lt;svg width=&quot;16&quot; height=&quot;16&quot;…
+at t.value (https://80ff5c9d-d487-4885-8c9c-d757139f90c1-00-6z84s60i41r1.riker.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:17465)
+at new t (https://80ff5c9d-d487-4885-8c9c-d757139f90c1-00-6z84s60i41r1.riker.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:12630)
+at t.value (https://80ff5c9d-d487-4885-8c9c-d757139f90c1-00-6z84s60i41r1.riker.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:32766)
+at https://80ff5c9d-d487-4885-8c9c-d757139f90c1-00-6z84s60i41r1.riker.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:34400
