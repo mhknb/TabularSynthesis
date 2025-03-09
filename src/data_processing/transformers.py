@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, LabelEncoder
+from sklearn.impute import SimpleImputer
 from datetime import datetime
 
 class DataTransformer:
@@ -9,16 +10,34 @@ class DataTransformer:
     def __init__(self):
         self.encoders = {}
         self.scalers = {}
+        self.imputers = {}
         self.encoding_maps = {}  # Store encoding information for inverse transform
         self.data_ranges = {}  # Store original data ranges for validation
+        self.missing_flags = {}  # Store information about missing values
 
     def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
-        """Transform continuous data using specified method"""
+        """Transform continuous data using specified method with missing value handling"""
+        # Create missing value flag if needed
+        has_missing = data.isnull().any()
+        if has_missing:
+            self.missing_flags[data.name] = data.isnull().astype(int)
+            
+            # Create and fit imputer (mean imputation for continuous)
+            imputer = SimpleImputer(strategy='mean')
+            imputed_data = imputer.fit_transform(data.values.reshape(-1, 1)).flatten()
+            self.imputers[data.name] = imputer
+            
+            # Use imputed data for further transformations
+            data_for_transform = pd.Series(imputed_data, name=data.name)
+        else:
+            data_for_transform = data
+
         # Store original data range for this column
         self.data_ranges[data.name] = {
-            'min': data.min(),
-            'max': data.max(),
-            'dtype': data.dtype
+            'min': data_for_transform.min(),
+            'max': data_for_transform.max(),
+            'dtype': data.dtype,
+            'has_missing': has_missing
         }
 
         if method == 'minmax':
@@ -30,31 +49,48 @@ class DataTransformer:
 
         self.scalers[data.name] = scaler
         return pd.Series(
-            scaler.fit_transform(data.values.reshape(-1, 1)).flatten(),
+            scaler.fit_transform(data_for_transform.values.reshape(-1, 1)).flatten(),
             name=data.name
         )
 
     def transform_categorical(self, data: pd.Series, method: str = 'label') -> pd.Series:
-        """Transform categorical data using specified method"""
+        """Transform categorical data using specified method with missing value handling"""
+        # Create missing value flag if needed
+        has_missing = data.isnull().any()
+        if has_missing:
+            self.missing_flags[data.name] = data.isnull().astype(int)
+            
+            # Create and fit imputer (most frequent imputation for categorical)
+            imputer = SimpleImputer(strategy='most_frequent')
+            imputed_data = imputer.fit_transform(data.values.reshape(-1, 1)).flatten()
+            self.imputers[data.name] = imputer
+            
+            # Use imputed data for further transformations
+            data_for_transform = pd.Series(imputed_data, name=data.name)
+        else:
+            data_for_transform = data
+            
         if method == 'label':
             encoder = LabelEncoder()
             self.encoders[data.name] = encoder
-            transformed = pd.Series(encoder.fit_transform(data), name=data.name)
+            transformed = pd.Series(encoder.fit_transform(data_for_transform), name=data.name)
             self.encoding_maps[data.name] = {
                 'method': 'label',
                 'categories': encoder.classes_,
-                'num_categories': len(encoder.classes_)
+                'num_categories': len(encoder.classes_),
+                'has_missing': has_missing
             }
             return transformed
         elif method == 'onehot':
-            dummies = pd.get_dummies(data, prefix=data.name)
+            dummies = pd.get_dummies(data_for_transform, prefix=data.name)
             self.encoding_maps[data.name] = {
                 'method': 'onehot',
                 'columns': list(dummies.columns),
-                'original_categories': data.unique(),
-                'num_categories': len(data.unique())
+                'original_categories': data_for_transform.unique(),
+                'num_categories': len(data_for_transform.unique()),
+                'has_missing': has_missing
             }
-            return pd.Series(data.factorize()[0], name=data.name)
+            return pd.Series(data_for_transform.factorize()[0], name=data.name)
         else:
             raise ValueError(f"Unknown encoding method: {method}")
 

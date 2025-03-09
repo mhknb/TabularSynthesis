@@ -48,6 +48,25 @@ def main():
 
     # Data preview
     components.data_preview(df)
+    
+    # Missing values handling
+    missing_cols = df.columns[df.isnull().any()].tolist()
+    if missing_cols:
+        st.subheader("Missing Values Handling")
+        missing_handling = st.radio(
+            "How would you like to handle missing values?",
+            options=["Impute with mean/mode", "Drop rows with missing values", "Keep as is"],
+            index=0,
+            help="Choose how to handle missing data before training the model"
+        )
+        
+        if missing_handling == "Drop rows with missing values":
+            original_count = len(df)
+            df = df.dropna()
+            st.info(f"Dropped {original_count - len(df)} rows with missing values. {len(df)} rows remaining.")
+        elif missing_handling == "Impute with mean/mode":
+            st.info("Missing values will be imputed during the transformation process.")
+        # "Keep as is" doesn't require any action
 
     # Column type selection
     column_types = components.column_type_selector(df)

@@ -3,11 +3,16 @@ import numpy as np
 from typing import Tuple, List
 
 def validate_data(df: pd.DataFrame) -> Tuple[bool, List[str]]:
-    """Validate input data for common issues"""
+    """Validate input data for common issues with detailed missing value info"""
     issues = []
     
-    # Check for null values
-    null_cols = df.columns[df.isnull().any()].tolist()
+    # Check for null values with percentages
+    null_cols = []
+    for col in df.columns:
+        null_pct = df[col].isnull().mean() * 100
+        if null_pct > 0:
+            null_cols.append(f"{col} ({null_pct:.1f}%)")
+    
     if null_cols:
         issues.append(f"Missing values found in columns: {', '.join(null_cols)}")
     
