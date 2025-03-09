@@ -78,7 +78,7 @@ def model_config_section():
     config = {
         'model_type': st.selectbox(
             "Select GAN Model",
-            options=['TableGAN', 'WGAN'],
+            options=['TableGAN', 'WGAN', 'CGAN'],
             help="Choose the type of GAN model to use for synthetic data generation"
         ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
@@ -103,6 +103,15 @@ def model_config_section():
                 "Number of Critic Updates",
                 1, 10, 5, 1,
                 help="Number of critic updates per generator update (WGAN specific)"
+            )
+        })
+    # CGAN specific parameters
+    elif config['model_type'] == 'CGAN':
+        config.update({
+            'condition_column': st.selectbox(
+                "Condition Column",
+                options=[None] + list(st.session_state.get('uploaded_df', pd.DataFrame()).columns),
+                help="Column to use as a condition for generating data (CGAN specific)"
             )
         })
 

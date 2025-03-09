@@ -11,6 +11,7 @@ from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
+from src.models.cgan import CGAN
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
@@ -31,6 +32,9 @@ def main():
         return
     if df is None:
         return
+        
+    # Store DataFrame in session state for CGAN condition column selector
+    st.session_state['uploaded_df'] = df
 
     # Validate data
     valid, issues = validate_data(df)
