@@ -1,4 +1,3 @@
-
 import modal
 import torch
 import pandas as pd
@@ -64,11 +63,11 @@ def train_gan_remote(data, input_dim, hidden_dim, epochs, batch_size):
         nn.Linear(hidden_dim, hidden_dim * 2),
         nn.LeakyReLU(0.2),
         nn.Dropout(0.3),
-
+        
         nn.Linear(hidden_dim * 2, hidden_dim),
         nn.LeakyReLU(0.2),
         nn.Dropout(0.3),
-
+        
         nn.Linear(hidden_dim, 1)
     )
     
@@ -94,9 +93,9 @@ def train_gan_remote(data, input_dim, hidden_dim, epochs, batch_size):
     
     # Create model directory if it doesn't exist
     import os
-    os.makedirs('/tmp/model', exist_ok=True)
+    os.makedirs('/model', exist_ok=True)
     
-    with open('/tmp/model/dims.json', 'w') as f:
+    with open('/model/dims.json', 'w') as f:
         json.dump(dims, f)
     
     for epoch in range(epochs):
@@ -148,8 +147,8 @@ def train_gan_remote(data, input_dim, hidden_dim, epochs, batch_size):
         print(f"Epoch {epoch+1}/{epochs}, G Loss: {g_epoch_loss:.4f}, D Loss: {d_epoch_loss:.4f}")
     
     # Save the model
-    torch.save(generator.state_dict(), '/tmp/model/generator.pth')
-    torch.save(discriminator.state_dict(), '/tmp/model/discriminator.pth')
+    torch.save(generator.state_dict(), '/model/generator.pth')
+    torch.save(discriminator.state_dict(), '/model/discriminator.pth')
     
     return losses
 
@@ -164,20 +163,20 @@ def generate_samples_remote(num_samples, input_dim=None, hidden_dim=None):
     import torch.nn as nn
     import json
     import os
-    
+
     # If dimensions not provided, load from saved file
     if input_dim is None or hidden_dim is None:
         try:
-            with open('/tmp/model/dims.json', 'r') as f:
+            with open('/model/dims.json', 'r') as f:
                 dims = json.load(f)
                 input_dim = dims.get('input_dim')
                 hidden_dim = dims.get('hidden_dim')
-                
+
             if input_dim is None or hidden_dim is None:
                 raise ValueError("Could not load dimensions from saved file")
         except Exception as e:
             raise RuntimeError(f"Failed to load model dimensions: {str(e)}")
-    
+
     # Define generator with same architecture as training
     generator = nn.Sequential(
         nn.Linear(input_dim, hidden_dim),
@@ -205,8 +204,7 @@ def generate_samples_remote(num_samples, input_dim=None, hidden_dim=None):
     
     # Load the model
     try:
-        import os
-        model_path = '/tmp/model/generator.pth'
+        model_path = '/model/generator.pth'
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found at {model_path}")
         generator.load_state_dict(torch.load(model_path))
