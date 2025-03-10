@@ -33,7 +33,7 @@ def main():
         return
     if df is None:
         return
-        
+
     # Store DataFrame in session state for CGAN condition column selector
     st.session_state['uploaded_df'] = df
 
@@ -49,7 +49,7 @@ def main():
 
     # Data preview
     components.data_preview(df)
-    
+
     # Missing values handling
     missing_cols = df.columns[df.isnull().any()].tolist()
     if missing_cols:
@@ -60,7 +60,7 @@ def main():
             index=0,
             help="Choose how to handle missing data before training the model"
         )
-        
+
         if missing_handling == "Drop rows with missing values":
             original_count = len(df)
             df = df.dropna()
@@ -85,7 +85,7 @@ def main():
 
     # Model configuration
     model_config = model_config_section()  # Use the newly defined function directly
-    
+
     # Add condition column selector for CGAN
     if model_config['model_type'] == 'CGAN':
         if 'uploaded_df' in st.session_state:
@@ -94,7 +94,7 @@ def main():
                 options=st.session_state['uploaded_df'].columns.tolist(),
                 help="This column will be used as a condition for generating data"
             )
-            
+
             # Now add selector for specific condition values to generate
             if 'condition_column' in model_config and model_config['condition_column']:
                 unique_values = st.session_state['uploaded_df'][model_config['condition_column']].unique().tolist()
@@ -104,13 +104,13 @@ def main():
                     default=unique_values[:min(3, len(unique_values))],
                     help="CGAN will generate data only for these selected condition values"
                 )
-                
+
                 # Add ratio selector for each selected condition value
                 if model_config['condition_values']:
                     st.write("Set the proportion of samples to generate for each condition value:")
                     condition_ratios = {}
                     total_ratio = 0
-                    
+
                     cols = st.columns(min(3, len(model_config['condition_values'])))
                     for i, value in enumerate(model_config['condition_values']):
                         col_idx = i % len(cols)
@@ -124,20 +124,20 @@ def main():
                             )
                             condition_ratios[value] = ratio
                             total_ratio += ratio
-                    
+
                     # Normalize ratios
                     model_config['condition_ratios'] = {k: v/total_ratio for k, v in condition_ratios.items()}
         else:
             st.warning("Please upload data first to select a condition column for CGAN")
-            
+
     # Add Modal training option
     use_modal = st.checkbox("Use Modal for cloud training (faster)", value=True)
 
     # Column selection for synthetic data generation
     st.subheader("Column Selection")
-    
+
     col1, col2 = st.columns(2)
-    
+
     with col1:
         selection_mode = st.radio(
             "Column Selection Mode",
@@ -145,9 +145,9 @@ def main():
             index=0,
             help="Select which columns to use for synthetic data generation"
         )
-    
+
     selected_columns = original_columns.copy()
-    
+
     if selection_mode == "Choose columns to include":
         with col2:
             selected_columns = st.multiselect(
@@ -169,11 +169,11 @@ def main():
             selected_columns = [col for col in original_columns if col not in excluded_columns]
             if not selected_columns:
                 st.warning("You cannot exclude all columns")
-    
+
 
     # Target column selection for ML evaluation
     st.subheader("ML Evaluation Settings")
-    
+
     target_col = st.selectbox(
         "Select target column for ML utility evaluation",
         options=df.columns.tolist(),
@@ -202,19 +202,19 @@ def main():
                         col_type = column_types[col]
                         if col_type == 'Continuous':
                             transformed_col = transformer.transform_continuous(
-                                train_df[col], 
+                                train_df[col],
                                 transformations.get(col, 'standard')
                             )
                             transformed_data[col] = transformed_col
                         elif col_type == 'Categorical':
                             transformed_col = transformer.transform_categorical(
-                                train_df[col], 
+                                train_df[col],
                                 transformations.get(col, 'label')
                             )
                             transformed_data[col] = transformed_col
                         elif col_type == 'Ordinal':  # Handle ordinal as continuous
                             transformed_col = transformer.transform_continuous(
-                                train_df[col], 
+                                train_df[col],
                                 transformations.get(col, 'standard')
                             )
                             transformed_data[col] = transformed_col
@@ -260,7 +260,7 @@ def main():
                     # Local training fallback
                     train_data = torch.FloatTensor(transformed_data.values)
                     train_loader = torch.utils.data.DataLoader(
-                        train_data, 
+                        train_data,
                         batch_size=model_config['batch_size'],
                         shuffle=True
                     )
@@ -284,14 +284,14 @@ def main():
                             condition_data = transformed_data[condition_col].values.reshape(-1, 1)
                             condition_dim = 1
                             main_data = transformed_data.drop(columns=[condition_col])
-                            
+
                             # Store specific condition values for generation
                             if 'condition_values' in model_config and model_config['condition_values']:
                                 st.session_state['condition_values'] = model_config['condition_values']
                                 st.session_state['condition_ratios'] = model_config['condition_ratios']
                                 st.session_state['condition_encoder'] = transformer.encoders.get(condition_col)
                                 st.session_state['condition_col'] = condition_col
-                            
+
                             gan = CGAN(
                                 input_dim=main_data.shape[1],
                                 condition_dim=condition_dim,
@@ -304,7 +304,7 @@ def main():
                             condition_data = transformed_data[condition_col].values.reshape(-1, 1)
                             condition_dim = 1
                             main_data = transformed_data.drop(columns=[condition_col])
-                            
+
                             gan = CGAN(
                                 input_dim=main_data.shape[1],
                                 condition_dim=condition_dim,
@@ -332,32 +332,32 @@ def main():
                         condition_values = model_config['condition_values']
                         condition_ratios = model_config['condition_ratios']
                         encoder = transformer.encoders.get(model_config['condition_column'])
-                        
+
                         total_samples = len(df)
                         synthetic_data_list = []
-                        
+
                         for value in condition_values:
                             # Calculate how many samples to generate for this value
                             num_samples = int(condition_ratios[value] * total_samples)
                             if num_samples < 1:
                                 num_samples = 1
-                                
+
                             # Encode the condition value
                             encoded_value = encoder.transform([value])[0]
                             condition_tensor = torch.full((num_samples, 1), encoded_value, dtype=torch.float).to(device)
-                            
+
                             # Generate samples for this condition
                             value_samples = gan.generate_samples(num_samples, condition_tensor).cpu().numpy()
-                            
+
                             # Ensure the condition column has the correct encoded value
                             # We need to replace the last column with the encoded condition value
                             value_samples[:, -1] = encoded_value
-                            
+
                             synthetic_data_list.append(value_samples)
-                        
+
                         # Combine all generated samples
                         synthetic_data = np.vstack(synthetic_data_list)
-                        
+
                         # If we didn't generate exactly the requested number of samples, adjust
                         if len(synthetic_data) != total_samples:
                             indices = np.random.choice(len(synthetic_data), total_samples, replace=len(synthetic_data) < total_samples)
@@ -389,7 +389,7 @@ def main():
                             dict(year=year, month=month, day=day)
                         )
                         col_idx += 4
-                        
+
                 # Add excluded columns back with empty/NaN values if they were in the original data
                 for col in original_columns:
                     if col not in selected_columns:
@@ -427,8 +427,29 @@ def main():
 
                 # Distribution plots
                 with st.expander("Distribution Comparisons"):
-                    fig = evaluator.plot_distributions()
-                    st.pyplot(fig)
+                    st.subheader("Cumulative Distribution Plots")
+                    fig_cumulative = evaluator.plot_cumulative_distributions()
+                    if fig_cumulative:
+                        st.pyplot(fig_cumulative)
+
+                    st.subheader("Density Distribution Plots")
+                    fig_density = evaluator.plot_distributions()
+                    st.pyplot(fig_density)
+
+                # Add new divergence metrics section
+                with st.expander("Distribution Divergence Metrics"):
+                    metrics = evaluator.evaluate_all(target_column=target_col, task_type=task_type)
+                    st.subheader("Jensen-Shannon Divergence (JSD)")
+                    st.write("JSD measures the similarity between probability distributions (0 = identical, 1 = completely different)")
+                    for col, value in metrics['divergence_metrics'].items():
+                        if 'jsd' in col:
+                            st.write(f"{col.replace('_jsd', '')}: {value:.4f}")
+
+                    st.subheader("Wasserstein Distance (WD)")
+                    st.write("WD measures the minimum 'cost' of transforming one distribution into another")
+                    for col, value in metrics['divergence_metrics'].items():
+                        if 'wasserstein' in col:
+                            st.write(f"{col.replace('_wasserstein', '')}: {value:.4f}")
 
                 # Display results
                 st.success("Synthetic data generated successfully!")

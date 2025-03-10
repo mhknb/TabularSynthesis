@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
+from scipy.spatial.distance import jensenshannon
+from scipy.stats import wasserstein_distance
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -28,6 +30,75 @@ class DataEvaluator:
         # Ensure column order matches between real and synthetic data
         self.synthetic_data = self.synthetic_data[self.real_data.columns]
         print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
+
+    def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
+        """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
+        # Convert to probability distributions
+        real_hist, bins = np.histogram(real_col, bins=50, density=True)
+        synth_hist, _ = np.histogram(synthetic_col, bins=bins, density=True)
+
+        # Ensure distributions sum to 1 and handle zero probabilities
+        real_hist = np.clip(real_hist, 1e-10, None)
+        synth_hist = np.clip(synth_hist, 1e-10, None)
+        real_hist = real_hist / real_hist.sum()
+        synth_hist = synth_hist / synth_hist.sum()
+
+        return jensenshannon(real_hist, synth_hist)
+
+    def calculate_wasserstein(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
+        """Calculate Wasserstein Distance between real and synthetic data distributions"""
+        return wasserstein_distance(real_col.values, synthetic_col.values)
+
+    def plot_cumulative_distributions(self, save_path: str = None):
+        """Plot cumulative distribution comparisons for numerical columns"""
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        n_cols = len(numerical_cols)
+
+        if n_cols == 0:
+            return None
+
+        # Create subplots grid
+        n_rows = (n_cols + 2) // 3  # 3 columns per row
+        fig, axes = plt.subplots(n_rows, 3, figsize=(15, 5*n_rows))
+        if n_rows == 1:
+            axes = axes.reshape(1, -1)
+
+        for idx, col in enumerate(numerical_cols):
+            row = idx // 3
+            col_idx = idx % 3
+
+            # Sort values for cumulative distribution
+            real_sorted = np.sort(self.real_data[col].values)
+            synth_sorted = np.sort(self.synthetic_data[col].values)
+
+            # Calculate cumulative probabilities
+            real_cdf = np.arange(1, len(real_sorted) + 1) / len(real_sorted)
+            synth_cdf = np.arange(1, len(synth_sorted) + 1) / len(synth_sorted)
+
+            # Normalize values to [-1, 1] range for comparison
+            real_norm = 2 * (real_sorted - real_sorted.min()) / (real_sorted.max() - real_sorted.min()) - 1
+            synth_norm = 2 * (synth_sorted - synth_sorted.min()) / (synth_sorted.max() - synth_sorted.min()) - 1
+
+            # Plot
+            axes[row, col_idx].plot(real_norm, real_cdf, label='Real Data', color='blue')
+            axes[row, col_idx].plot(synth_norm, synth_cdf, label='Synthetic Data', color='orange')
+            axes[row, col_idx].set_title(f'{col}')
+            axes[row, col_idx].set_xlabel('Normalized Value')
+            axes[row, col_idx].set_ylabel('Cumulative Probability')
+            axes[row, col_idx].legend()
+            axes[row, col_idx].grid(True, alpha=0.3)
+
+        # Hide empty subplots
+        for idx in range(n_cols, n_rows * 3):
+            row = idx // 3
+            col_idx = idx % 3
+            axes[row, col_idx].set_visible(False)
+
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path)
+            plt.close()
+        return fig
 
     def preprocess_features(self, X: pd.DataFrame, scalers=None, encoders=None):
         """Preprocess features while preserving column names"""
@@ -250,10 +321,21 @@ class DataEvaluator:
 
     def evaluate_all(self, target_column: str = None, task_type: str = 'classification') -> dict:
         """Run all evaluations and return comprehensive metrics"""
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+
+        # Calculate JSD and WD for numerical columns
+        divergence_metrics = {}
+        for col in numerical_cols:
+            jsd = self.calculate_jsd(self.real_data[col], self.synthetic_data[col])
+            wd = self.calculate_wasserstein(self.real_data[col], self.synthetic_data[col])
+            divergence_metrics[f'{col}_jsd'] = jsd
+            divergence_metrics[f'{col}_wasserstein'] = wd
+
         evaluation = {
             'statistical_tests': self.statistical_similarity(),
             'correlation_similarity': self.correlation_similarity(),
-            'column_statistics': self.column_statistics().to_dict()
+            'column_statistics': self.column_statistics().to_dict(),
+            'divergence_metrics': divergence_metrics
         }
 
         if target_column:
