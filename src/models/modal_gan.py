@@ -7,11 +7,11 @@ import json
 import logging
 
 # Define app and shared resources at module level
-app = modal.App("synthetic-data-generator")
+stub = modal.Stub("synthetic-data-generator")
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
-@app.function(
+@stub.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
@@ -30,7 +30,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         num_workers=2
     )
 
-    all_losses = []
+    losses = []
     best_loss = float('inf')
     patience = 5
     patience_counter = 0
@@ -47,24 +47,16 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             num_batches += 1
 
         # Calculate average losses
-        avg_generator_loss = epoch_generator_loss / num_batches
-        avg_discriminator_loss = epoch_discriminator_loss / num_batches
+        avg_generator_loss = float(epoch_generator_loss / num_batches)
+        avg_discriminator_loss = float(epoch_discriminator_loss / num_batches)
 
-        # Store epoch results
-        epoch_result = (epoch, {
-            'generator_loss': float(avg_generator_loss),
-            'discriminator_loss': float(avg_discriminator_loss)
-        })
-        all_losses.append(epoch_result)
-
-        # Print progress for logging
-        print(json.dumps({
-            'type': 'epoch_update',
+        # Store the loss information
+        epoch_info = {
             'epoch': epoch,
-            'total_epochs': epochs,
-            'generator_loss': float(avg_generator_loss),
-            'discriminator_loss': float(avg_discriminator_loss)
-        }))
+            'generator_loss': avg_generator_loss,
+            'discriminator_loss': avg_discriminator_loss
+        }
+        losses.append(epoch_info)
 
         # Early stopping check
         current_loss = avg_generator_loss + avg_discriminator_loss
@@ -76,16 +68,12 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         else:
             patience_counter += 1
             if patience_counter >= patience:
-                print(json.dumps({
-                    'type': 'early_stopping',
-                    'epoch': epoch,
-                    'message': 'Early stopping triggered'
-                }))
+                print("Early stopping triggered")
                 break
 
-    return all_losses
+    return losses
 
-@app.function(
+@stub.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
@@ -101,7 +89,6 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
     except Exception as e:
         raise ValueError(f"Failed to load model: {str(e)}")
 
-    # Generate in batches
     batch_size = 1000
     num_batches = (num_samples + batch_size - 1) // batch_size
     synthetic_data_list = []
@@ -121,24 +108,27 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            with app.run():
-                # Call remote function and get future
-                future = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
-                # Wait for the result
-                return future.get()
+            # Run the Modal function
+            with stub.run():
+                losses = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
+                result = losses.get()  # Get the result from the remote execution
+
+                # Convert the results to the format expected by training UI
+                return [(info['epoch'], {
+                    'generator_loss': info['generator_loss'],
+                    'discriminator_loss': info['discriminator_loss']
+                }) for info in result]
 
         except Exception as e:
             if "timeout" in str(e).lower():
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
-    def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
+    def generate(self, num_samples: int, input_dim: int, hidden_dim: int):
         """Generate synthetic samples using Modal"""
         try:
-            with app.run():
-                # Call remote function and get future
-                future = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
-                # Wait for the result
-                return future.get()
+            with stub.run():
+                samples = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
+                return samples.get()
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
