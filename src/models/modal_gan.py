@@ -38,17 +38,17 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     best_loss = float('inf')
     patience = 5
     patience_counter = 0
-    losses = []
+    all_losses = []  # Store all losses for return
 
     # Training loop with improved early stopping and adaptive learning rate
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
     )
-    
+
     # Initialize metrics tracking
     best_fid_score = float('inf')  # Using loss as a proxy for FID score
     min_delta = 0.001  # Minimum improvement required
-    
+
     for epoch in range(epochs):
         epoch_losses = []
         for batch_idx, batch in enumerate(train_loader):
@@ -58,7 +58,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             # Print progress every 10 batches
             if batch_idx % 10 == 0:
                 print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                
+
             # Add gradient clipping to prevent exploding gradients
             torch.nn.utils.clip_grad_norm_(gan.generator.parameters(), max_norm=1.0)
             if hasattr(gan, 'discriminator'):
@@ -69,17 +69,20 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         # Calculate average loss
         avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
                      for k in epoch_losses[0].keys()}
-        losses.append(avg_losses)
+
+        # Store losses with epoch information
+        avg_losses['epoch'] = epoch
+        all_losses.append(avg_losses)  # Add to list of all losses
 
         # Calculate proxy metric for quality
         current_loss = sum(avg_losses.values())
-        
+
         # Update learning rate based on performance
         scheduler.step(current_loss)
-        
+
         # Check improvement
         is_improvement = (best_fid_score - current_loss) > min_delta
-        
+
         if is_improvement:
             best_fid_score = current_loss
             best_loss = current_loss
@@ -97,7 +100,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             if patience_counter >= patience:
                 print(f"Early stopping triggered at epoch {epoch+1}")
                 break
-            
+
         # Generate sample data every few epochs to check quality visually
         if epoch % 5 == 0 and epoch > 0:
             print("Generating sample data for quality check...")
@@ -106,7 +109,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 sample_data = gan.generator(sample_noise).cpu().numpy()
                 print(f"Sample data range: {sample_data.min()} to {sample_data.max()}")
 
-    return losses
+    return all_losses  # Return all losses for visualization
 
 @app.function(
     gpu="T4",
@@ -145,7 +148,22 @@ class ModalGAN:
         """Train GAN model using Modal"""
         try:
             with app.run():
-                return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
+                all_losses = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
+
+                # Convert list of loss dictionaries to format expected by training_progress
+                reformatted_losses = []
+                for loss_dict in all_losses:
+                    epoch = loss_dict['epoch']
+                    # Create loss dictionary in the format expected by training_progress
+                    training_loss = {
+                        'generator_loss': loss_dict.get('generator_loss', 0.0),
+                        'discriminator_loss': loss_dict.get('discriminator_loss', 
+                                                          loss_dict.get('critic_loss', 0.0))
+                    }
+                    reformatted_losses.append((epoch, training_loss))
+
+                return reformatted_losses
+
         except Exception as e:
             if "timeout" in str(e).lower():
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")

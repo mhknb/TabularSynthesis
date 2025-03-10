@@ -253,6 +253,15 @@ def main():
                 if use_modal:
                     try:
                         with st.spinner("Training model on Modal cloud..."):
+                            # Initialize training progress tracking
+                            st.session_state.total_epochs = model_config['epochs']
+                            for key in ['progress_bar', 'status_text', 'loss_chart', 'training_losses']:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+
+                            # Initialize loss storage
+                            st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []}
+
                             # Train on Modal
                             losses = modal_gan.train(
                                 transformed_data,
@@ -261,6 +270,16 @@ def main():
                                 epochs=model_config['epochs'],
                                 batch_size=model_config['batch_size']
                             )
+
+                            # Process losses and update visualization
+                            for epoch, loss_dict in losses:
+                                components.training_progress(epoch, loss_dict)
+
+                            # Final loss plot for Modal training
+                            st.subheader("Training Progress")
+                            final_loss_plot = components.plot_training_losses()
+                            if final_loss_plot:
+                                st.pyplot(final_loss_plot)
 
                             # Generate samples using Modal
                             synthetic_data = modal_gan.generate(
@@ -404,7 +423,6 @@ def main():
                         synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
                     # Display training losses plot
-                    
 
                 # Inverse transform
                 result_df = pd.DataFrame()
