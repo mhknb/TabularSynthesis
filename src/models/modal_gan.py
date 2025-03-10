@@ -6,32 +6,32 @@ from src.models.table_gan import TableGAN
 
 # Define app and shared resources at module level
 app = modal.App("synthetic-data-generator")
-
-# Create volume with create_if_missing flag
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
-
-# Create Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    timeout=1800  # Increase timeout to 30 minutes
+    timeout=1800  # 30 minutes
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
-    """Train GAN model using Modal remote execution"""
+    """Train GAN model using Modal remote execution with proper batch handling"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
 
     # Convert data to tensor and optimize batch size
     train_data = torch.FloatTensor(data.values)
-    batch_size = min(batch_size, len(train_data) // 4)  # Ensure reasonable batch size
+
+    # Ensure batch size is at least min_batch_size (2) and not larger than dataset
+    batch_size = max(gan.min_batch_size, min(batch_size, len(train_data) // 4))
+
     train_loader = torch.utils.data.DataLoader(
         train_data, 
         batch_size=batch_size,
         shuffle=True,
-        num_workers=2  # Parallelize data loading
+        drop_last=True,  # Drop last batch if incomplete
+        num_workers=2
     )
 
     # Initialize training metrics
@@ -40,52 +40,44 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     patience_counter = 0
     losses = []
 
-    # Training loop with improved early stopping and adaptive learning rate
+    # Training loop with improved batch handling
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
     )
-    
-    # Initialize metrics tracking
-    best_fid_score = float('inf')  # Using loss as a proxy for FID score
-    min_delta = 0.001  # Minimum improvement required
-    
+
     for epoch in range(epochs):
         epoch_losses = []
         for batch_idx, batch in enumerate(train_loader):
-            loss_dict = gan.train_step(batch)
-            epoch_losses.append(loss_dict)
+            try:
+                loss_dict = gan.train_step(batch)
+                epoch_losses.append(loss_dict)
 
-            # Print progress every 10 batches
-            if batch_idx % 10 == 0:
-                print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                
-            # Add gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(gan.generator.parameters(), max_norm=1.0)
-            if hasattr(gan, 'discriminator'):
-                torch.nn.utils.clip_grad_norm_(gan.discriminator.parameters(), max_norm=1.0)
-            elif hasattr(gan, 'critic'):
-                torch.nn.utils.clip_grad_norm_(gan.critic.parameters(), max_norm=1.0)
+                if batch_idx % 10 == 0:
+                    print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
+
+            except ValueError as e:
+                print(f"Warning: Skipping batch due to size issue: {str(e)}")
+                continue
+            except Exception as e:
+                print(f"Error in batch processing: {str(e)}")
+                continue
+
+        if not epoch_losses:
+            print("No valid batches in epoch, stopping training")
+            break
 
         # Calculate average loss
         avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
                      for k in epoch_losses[0].keys()}
         losses.append(avg_losses)
 
-        # Calculate proxy metric for quality
         current_loss = sum(avg_losses.values())
-        
-        # Update learning rate based on performance
         scheduler.step(current_loss)
-        
-        # Check improvement
-        is_improvement = (best_fid_score - current_loss) > min_delta
-        
-        if is_improvement:
-            best_fid_score = current_loss
+
+        if current_loss < best_loss:
             best_loss = current_loss
             patience_counter = 0
-            print(f"Epoch {epoch+1}: Improved model quality, saving model")
-            # Save best model
+            print(f"Epoch {epoch+1}: New best model found")
             try:
                 torch.save(gan.state_dict(), "/model/table_gan.pt")
                 volume.commit()
@@ -93,18 +85,9 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 print(f"Warning: Failed to save model: {str(e)}")
         else:
             patience_counter += 1
-            print(f"Epoch {epoch+1}: No improvement. Patience: {patience_counter}/{patience}")
             if patience_counter >= patience:
                 print(f"Early stopping triggered at epoch {epoch+1}")
                 break
-            
-        # Generate sample data every few epochs to check quality visually
-        if epoch % 5 == 0 and epoch > 0:
-            print("Generating sample data for quality check...")
-            with torch.no_grad():
-                sample_noise = torch.randn(min(10, batch_size), gan.input_dim).to(device)
-                sample_data = gan.generator(sample_noise).cpu().numpy()
-                print(f"Sample data range: {sample_data.min()} to {sample_data.max()}")
 
     return losses
 
@@ -112,31 +95,23 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    timeout=600  # 10 minutes timeout for generation
+    timeout=600
 )
 def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
     """Generate synthetic samples using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
 
     try:
         gan.load_state_dict(torch.load("/model/table_gan.pt"))
     except Exception as e:
         raise ValueError(f"Failed to load model: {str(e)}")
 
-    # Generate in batches to avoid memory issues
-    batch_size = 1000
-    num_batches = (num_samples + batch_size - 1) // batch_size
-    synthetic_data_list = []
-
-    with torch.no_grad():
-        for i in range(num_batches):
-            current_batch_size = min(batch_size, num_samples - i * batch_size)
-            noise = torch.randn(current_batch_size, input_dim).to(device)
-            batch_data = gan.generator(noise)
-            synthetic_data_list.append(batch_data.cpu().numpy())
-
-        return np.concatenate(synthetic_data_list)
+    try:
+        synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
+        return synthetic_data
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate samples: {str(e)}")
 
 class ModalGAN:
     """Class for managing Modal GAN operations"""

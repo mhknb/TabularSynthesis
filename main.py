@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -18,6 +19,14 @@ from src.utils.evaluation import DataEvaluator
 from src.ui import components
 from sklearn.model_selection import train_test_split
 
+# Initialize event loop for async operations
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+# Configure Streamlit page
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
 # Initialize Modal resources
@@ -84,7 +93,7 @@ def main():
     transformations = components.transformation_selector(column_types)
 
     # Model configuration
-    model_config = model_config_section()  # Use the newly defined function directly
+    model_config = model_config_section()
 
     # Add condition column selector for CGAN
     if model_config['model_type'] == 'CGAN':
@@ -258,11 +267,19 @@ def main():
 
                 if not use_modal:
                     # Local training fallback
+                    # Calculate appropriate batch size
+                    num_samples = len(transformed_data)
+                    if model_config['batch_size'] >= num_samples:
+                        adjusted_batch_size = max(32, num_samples // 4)  # Ensure at least 4 batches
+                        st.warning(f"Batch size ({model_config['batch_size']}) is larger than dataset size ({num_samples}). Adjusted to {adjusted_batch_size}")
+                        model_config['batch_size'] = adjusted_batch_size
+
                     train_data = torch.FloatTensor(transformed_data.values)
                     train_loader = torch.utils.data.DataLoader(
-                        train_data,
+                        train_data, 
                         batch_size=model_config['batch_size'],
-                        shuffle=True
+                        shuffle=True,
+                        drop_last=True  # Drop last batch if incomplete
                     )
 
                     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -475,7 +492,7 @@ def model_config_section():
 
     model_config['model_type'] = st.selectbox(
         "Select Model Type",
-        options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],  # Added TVAE
+        options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],
         help="Choose the type of model to use for synthetic data generation"
     )
 
@@ -508,13 +525,16 @@ def model_config_section():
         help="Number of training epochs"
     )
 
+    # Add a note about batch size requirements
+    st.info("Note: Batch size will be automatically adjusted if it exceeds dataset size.")
+
     model_config['batch_size'] = st.slider(
         "Batch Size",
-        min_value=32,
-        max_value=256,
-        value=64,
-        step=32,
-        help="Number of samples per training batch"
+        min_value=8,
+        max_value=128,
+        value=32,
+        step=8,
+        help="Number of samples per training batch. Will be adjusted if larger than dataset size."
     )
 
     if model_config['model_type'] == 'WGAN':
