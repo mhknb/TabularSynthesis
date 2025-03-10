@@ -343,6 +343,11 @@ def main():
                         )
 
                     st.session_state.total_epochs = model_config['epochs']
+                    # Clear previous training state
+                    for key in ['progress_bar', 'status_text', 'loss_chart', 'training_losses']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+
                     st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []} # Initialize loss storage
                     losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
