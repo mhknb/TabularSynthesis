@@ -18,15 +18,7 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
     timeout=1800
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
-    """Train GAN model using Modal remote execution with structured logging"""
-    import sys
-    import logging
-    import json
-
-    # Configure logging
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-
+    """Train GAN model using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
@@ -66,7 +58,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         }
         all_losses.append(epoch_result)
 
-        # Print progress that can be captured from Modal output
+        # Print progress
         print(json.dumps({
             'type': 'epoch_update',
             'epoch': epoch,
@@ -131,12 +123,13 @@ class ModalGAN:
         """Train GAN model using Modal with real-time log processing"""
         try:
             with app.run():
-                # Start training and get the output directly
-                output = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size).get()
+                # Call remote function and wait for result
+                remote_fn = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
+                all_losses = remote_fn.get()
 
                 # Process output and extract epoch information
                 reformatted_losses = []
-                for loss_dict in output:
+                for loss_dict in all_losses:
                     reformatted_losses.append((
                         loss_dict['epoch'],
                         {
@@ -156,6 +149,7 @@ class ModalGAN:
         """Generate synthetic samples using Modal"""
         try:
             with app.run():
-                return generate_samples_remote.remote(num_samples, input_dim, hidden_dim).get()
+                remote_fn = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
+                return remote_fn.get()
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
