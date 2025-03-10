@@ -51,9 +51,18 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
     for epoch in range(epochs):
         epoch_losses = []
+        batch_generator_loss = 0
+        batch_discriminator_loss = 0
+        num_batches = 0
+
         for batch_idx, batch in enumerate(train_loader):
             loss_dict = gan.train_step(batch)
             epoch_losses.append(loss_dict)
+
+            # Accumulate batch losses
+            batch_generator_loss += loss_dict['generator_loss']
+            batch_discriminator_loss += loss_dict.get('discriminator_loss', loss_dict.get('critic_loss', 0.0))
+            num_batches += 1
 
             # Print progress every 10 batches
             if batch_idx % 10 == 0:
@@ -66,16 +75,20 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             elif hasattr(gan, 'critic'):
                 torch.nn.utils.clip_grad_norm_(gan.critic.parameters(), max_norm=1.0)
 
-        # Calculate average loss
-        avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
-                     for k in epoch_losses[0].keys()}
+        # Calculate average losses for the epoch
+        avg_generator_loss = batch_generator_loss / num_batches
+        avg_discriminator_loss = batch_discriminator_loss / num_batches
 
-        # Store losses with epoch information
-        avg_losses['epoch'] = epoch
-        all_losses.append(avg_losses)  # Add to list of all losses
+        # Store epoch results
+        epoch_result = {
+            'epoch': epoch,
+            'generator_loss': avg_generator_loss,
+            'discriminator_loss': avg_discriminator_loss
+        }
+        all_losses.append(epoch_result)
 
         # Calculate proxy metric for quality
-        current_loss = sum(avg_losses.values())
+        current_loss = avg_generator_loss + avg_discriminator_loss
 
         # Update learning rate based on performance
         scheduler.step(current_loss)
@@ -158,7 +171,7 @@ class ModalGAN:
                     training_loss = {
                         'generator_loss': loss_dict.get('generator_loss', 0.0),
                         'discriminator_loss': loss_dict.get('discriminator_loss', 
-                                                          loss_dict.get('critic_loss', 0.0))
+                                                         loss_dict.get('critic_loss', 0.0))
                     }
                     reformatted_losses.append((epoch, training_loss))
 
