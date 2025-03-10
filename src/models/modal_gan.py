@@ -3,28 +3,46 @@ import torch
 import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
+import json
+import logging
 
 # Define app and shared resources at module level
 app = modal.App("synthetic-data-generator")
-
-# Create volume with create_if_missing flag
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
-
-# Create Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    timeout=1800  # Increase timeout to 30 minutes
+    timeout=1800
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
-    """Train GAN model using Modal remote execution"""
+    """Train GAN model using Modal remote execution with structured logging"""
+    import sys
+    import logging
+    import json
+
+    # Configure logging with JSON format
+    class JsonFormatter(logging.Formatter):
+        def format(self, record):
+            if isinstance(record.msg, dict):
+                return json.dumps(record.msg)
+            return json.dumps({
+                'message': record.getMessage(),
+                'level': record.levelname,
+                'time': self.formatTime(record)
+            })
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter())
+    root_logger = logging.getLogger()
+    root_logger.handlers = [handler]
+    root_logger.setLevel(logging.INFO)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
-    # Convert data to tensor and create data loader
     train_data = torch.FloatTensor(data.values)
     train_loader = torch.utils.data.DataLoader(
         train_data, 
@@ -33,30 +51,34 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         num_workers=2
     )
 
-    # Initialize loss tracking
     all_losses = []
     best_loss = float('inf')
     patience = 5
     patience_counter = 0
 
-    # Training loop
     for epoch in range(epochs):
         epoch_generator_loss = 0.0
         epoch_discriminator_loss = 0.0
         num_batches = 0
 
         for batch in train_loader:
-            # Train step
             loss_dict = gan.train_step(batch)
-
-            # Accumulate losses
             epoch_generator_loss += loss_dict['generator_loss']
             epoch_discriminator_loss += loss_dict.get('discriminator_loss', loss_dict.get('critic_loss', 0.0))
             num_batches += 1
 
-        # Calculate average losses for the epoch
+        # Calculate average losses
         avg_generator_loss = epoch_generator_loss / num_batches
         avg_discriminator_loss = epoch_discriminator_loss / num_batches
+
+        # Log progress as structured JSON
+        logging.info({
+            'type': 'epoch_update',
+            'epoch': epoch,
+            'total_epochs': epochs,
+            'generator_loss': avg_generator_loss,
+            'discriminator_loss': avg_discriminator_loss
+        })
 
         # Store epoch results
         epoch_result = {
@@ -71,17 +93,22 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         if current_loss < best_loss:
             best_loss = current_loss
             patience_counter = 0
-            # Save best model
             torch.save(gan.state_dict(), "/model/table_gan.pt")
             volume.commit()
+            logging.info({
+                'type': 'model_save',
+                'epoch': epoch,
+                'loss': current_loss
+            })
         else:
             patience_counter += 1
             if patience_counter >= patience:
-                print(f"Early stopping triggered at epoch {epoch}")
+                logging.info({
+                    'type': 'early_stopping',
+                    'epoch': epoch,
+                    'message': 'Early stopping triggered'
+                })
                 break
-
-        # Print progress
-        print(f"Epoch {epoch+1}/{epochs} - Gen Loss: {avg_generator_loss:.4f}, Disc Loss: {avg_discriminator_loss:.4f}")
 
     return all_losses
 
@@ -119,21 +146,33 @@ class ModalGAN:
     """Class for managing Modal GAN operations"""
 
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
-        """Train GAN model using Modal"""
+        """Train GAN model using Modal with real-time log processing"""
         try:
-            with app.run():
-                all_losses = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
-
-                # Convert losses to the format expected by training_progress
+            with app.run() as app_ctx:
                 reformatted_losses = []
-                for loss_dict in all_losses:
-                    reformatted_losses.append((
-                        loss_dict['epoch'],
-                        {
-                            'generator_loss': loss_dict['generator_loss'],
-                            'discriminator_loss': loss_dict['discriminator_loss']
-                        }
-                    ))
+
+                # Stream logs during training
+                with app_ctx.logs() as logs:
+                    train_future = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
+
+                    # Process logs in real-time
+                    for log_entry in logs:
+                        try:
+                            log_data = json.loads(log_entry)
+                            if isinstance(log_data, dict) and log_data.get('type') == 'epoch_update':
+                                # Format the loss data for training progress
+                                epoch = log_data['epoch']
+                                losses = {
+                                    'generator_loss': log_data['generator_loss'],
+                                    'discriminator_loss': log_data['discriminator_loss']
+                                }
+                                reformatted_losses.append((epoch, losses))
+
+                        except json.JSONDecodeError:
+                            continue
+
+                    # Wait for training to complete
+                    train_future.get()
 
                 return reformatted_losses
 
