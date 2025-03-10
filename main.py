@@ -6,7 +6,6 @@ import streamlit as st
 import torch
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt # Added matplotlib import
 from src.data_processing.data_loader import DataLoader
 from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
@@ -23,22 +22,6 @@ st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
 # Initialize Modal resources
 modal_gan = ModalGAN()
-
-def plot_training_losses():
-    """Plot training losses"""
-    if 'training_losses' not in st.session_state:
-        return None
-
-    losses = st.session_state.training_losses
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(losses['epochs'], losses['generator'], label='Generator Loss', color='blue')
-    ax.plot(losses['epochs'], losses['discriminator'], label='Discriminator/Critic Loss', color='orange')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('Training Losses')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    return fig
 
 def main():
     st.title("Synthetic Tabular Data Generator")
@@ -253,65 +236,14 @@ def main():
                 if use_modal:
                     try:
                         with st.spinner("Training model on Modal cloud..."):
-                            # Initialize training progress tracking
-                            st.session_state.total_epochs = model_config['epochs']
-                            for key in ['progress_bar', 'status_text', 'loss_chart', 'training_losses']:
-                                if key in st.session_state:
-                                    del st.session_state[key]
-
-                            # Initialize progress display elements
-                            progress_bar = st.progress(0)
-                            status_text = st.empty()
-                            loss_chart = st.empty()
-
-                            # Initialize loss storage
-                            st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []}
-
-                            # Create a placeholder for the loss plot
-                            loss_plot = st.empty()
-
                             # Train on Modal
-                            all_losses = modal_gan.train(
+                            losses = modal_gan.train(
                                 transformed_data,
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim'],
                                 epochs=model_config['epochs'],
                                 batch_size=model_config['batch_size']
                             )
-
-                            # Process each epoch's losses
-                            for epoch, loss_dict in all_losses:
-                                # Update progress bar
-                                progress = (epoch + 1) / model_config['epochs']
-                                progress_bar.progress(progress)
-
-                                # Update loss tracking
-                                st.session_state.training_losses['epochs'].append(epoch)
-                                st.session_state.training_losses['generator'].append(loss_dict['generator_loss'])
-                                st.session_state.training_losses['discriminator'].append(loss_dict['discriminator_loss'])
-
-                                # Update status text
-                                status_text.text(
-                                    f"Epoch {epoch + 1}/{model_config['epochs']}: "
-                                    f"Generator Loss: {loss_dict['generator_loss']:.4f}, "
-                                    f"Discriminator Loss: {loss_dict['discriminator_loss']:.4f}"
-                                )
-
-                                # Update loss plot
-                                fig, ax = plt.subplots(figsize=(10, 4))
-                                ax.plot(st.session_state.training_losses['epochs'],
-                                      st.session_state.training_losses['generator'],
-                                      label='Generator Loss', color='blue')
-                                ax.plot(st.session_state.training_losses['epochs'],
-                                      st.session_state.training_losses['discriminator'],
-                                      label='Discriminator/Critic Loss', color='orange')
-                                ax.set_xlabel('Epoch')
-                                ax.set_ylabel('Loss')
-                                ax.set_title('Training Losses')
-                                ax.legend()
-                                ax.grid(True, alpha=0.3)
-                                loss_plot.pyplot(fig)
-                                plt.close(fig)
 
                             # Generate samples using Modal
                             synthetic_data = modal_gan.generate(
@@ -328,7 +260,7 @@ def main():
                     # Local training fallback
                     train_data = torch.FloatTensor(transformed_data.values)
                     train_loader = torch.utils.data.DataLoader(
-                        train_data, 
+                        train_data,
                         batch_size=model_config['batch_size'],
                         shuffle=True
                     )
@@ -393,29 +325,8 @@ def main():
                             device=device
                         )
 
-                    # Initialize training progress tracking
                     st.session_state.total_epochs = model_config['epochs']
-
-                    # Clear previous training state
-                    for key in ['progress_bar', 'status_text', 'loss_chart', 'training_losses']:
-                        if key in st.session_state:
-                            del st.session_state[key]
-
-                    # Create placeholder for loss plot
-                    loss_plot_placeholder = st.empty()
-
-                    # Initialize loss storage
-                    st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []}
                     losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
-
-
-                    # Final loss plot
-                    st.subheader("Training Progress")
-                    final_loss_plot = components.plot_training_losses()
-                    if final_loss_plot:
-                        st.pyplot(final_loss_plot)
-
-
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
                         # Generate data based on selected condition values with their proportions
                         condition_values = model_config['condition_values']
@@ -453,9 +364,6 @@ def main():
                             synthetic_data = synthetic_data[indices]
                     else:
                         synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
-
-                    # Display training losses plot
-
 
                 # Inverse transform
                 result_df = pd.DataFrame()

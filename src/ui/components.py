@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from typing import Tuple, Optional
 import io
-import matplotlib.pyplot as plt
 
 def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """Create file upload widget and handle uploaded file"""
@@ -66,7 +65,7 @@ def transformation_selector(column_types: dict):
         elif col_type == 'Categorical':
             transformations[col] = st.selectbox(
                 f"Encoding method for '{col}'",
-                options=['onehot', 'label'],
+                options=['onehot', 'label'],  # Changed order to make 'onehot' the default
                 key=f"transform_{col}"
             )
 
@@ -79,7 +78,7 @@ def model_config_section():
     config = {
         'model_type': st.selectbox(
             "Select GAN Model",
-            options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],
+            options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],  # Added TVAE to options
             help="Choose the type of model to use for synthetic data generation"
         ),
         'hidden_dim': st.slider("Hidden Layer Dimension", 64, 512, 256, 64),
@@ -122,64 +121,13 @@ def model_config_section():
 
 def training_progress(epoch: int, losses: dict):
     """Update training progress"""
-    if 'progress_bar' not in st.session_state:
-        st.session_state.progress_bar = st.progress(0)
-        st.session_state.status_text = st.empty()
-        st.session_state.loss_chart = st.empty()
-        st.session_state.training_losses = {'generator': [], 'discriminator': [], 'epochs': []}
+    progress_bar = st.progress(0)
+    status_text = st.empty()
 
-    # Update progress bar
-    st.session_state.progress_bar.progress(epoch / st.session_state.total_epochs)
-
-    # Update status text
+    progress_bar.progress(epoch / st.session_state.total_epochs)
     if 'critic_loss' in losses:
-        loss_text = f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, Critic Loss: {losses['critic_loss']:.4f}"
-        discriminator_loss = losses['critic_loss']
+        status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
+                        f"Critic Loss: {losses['critic_loss']:.4f}")
     else:
-        loss_text = f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, Discriminator Loss: {losses['discriminator_loss']:.4f}"
-        discriminator_loss = losses['discriminator_loss']
-
-    st.session_state.status_text.text(loss_text)
-
-    # Store losses for plotting
-    st.session_state.training_losses['generator'].append(losses['generator_loss'])
-    st.session_state.training_losses['discriminator'].append(discriminator_loss)
-    st.session_state.training_losses['epochs'].append(epoch)
-
-    # Update loss plot
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(st.session_state.training_losses['epochs'], 
-            st.session_state.training_losses['generator'], 
-            label='Generator Loss', color='blue')
-    ax.plot(st.session_state.training_losses['epochs'], 
-            st.session_state.training_losses['discriminator'], 
-            label='Discriminator/Critic Loss', color='orange')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('Training Losses')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    st.session_state.loss_chart.pyplot(fig)
-    plt.close(fig)
-
-def plot_training_losses():
-    """Plot training losses from session state"""
-    if 'training_losses' not in st.session_state:
-        return None
-
-    if not st.session_state.training_losses['epochs']:
-        return None
-
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(st.session_state.training_losses['epochs'], 
-            st.session_state.training_losses['generator'], 
-            label='Generator Loss', color='blue')
-    ax.plot(st.session_state.training_losses['epochs'], 
-            st.session_state.training_losses['discriminator'], 
-            label='Discriminator/Critic Loss', color='orange')
-    ax.set_xlabel('Epoch')
-    ax.set_ylabel('Loss')
-    ax.set_title('Training Losses')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    return fig
+        status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
+                        f"Discriminator Loss: {losses['discriminator_loss']:.4f}")

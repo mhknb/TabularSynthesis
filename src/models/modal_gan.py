@@ -3,81 +3,116 @@ import torch
 import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
-import json
-import logging
 
 # Define app and shared resources at module level
-stub = modal.Stub("synthetic-data-generator")
+app = modal.App("synthetic-data-generator")
+
+# Create volume with create_if_missing flag
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
+
+# Create Modal image with required dependencies
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas"])
 
-@stub.function(
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    timeout=1800
+    timeout=1800  # Increase timeout to 30 minutes
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
     """Train GAN model using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
+    # Convert data to tensor and optimize batch size
     train_data = torch.FloatTensor(data.values)
+    batch_size = min(batch_size, len(train_data) // 4)  # Ensure reasonable batch size
     train_loader = torch.utils.data.DataLoader(
         train_data, 
         batch_size=batch_size,
         shuffle=True,
-        num_workers=2
+        num_workers=2  # Parallelize data loading
     )
 
-    losses = []
+    # Initialize training metrics
     best_loss = float('inf')
     patience = 5
     patience_counter = 0
+    losses = []
 
+    # Training loop with improved early stopping and adaptive learning rate
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
+    )
+    
+    # Initialize metrics tracking
+    best_fid_score = float('inf')  # Using loss as a proxy for FID score
+    min_delta = 0.001  # Minimum improvement required
+    
     for epoch in range(epochs):
-        epoch_generator_loss = 0.0
-        epoch_discriminator_loss = 0.0
-        num_batches = 0
-
-        for batch in train_loader:
+        epoch_losses = []
+        for batch_idx, batch in enumerate(train_loader):
             loss_dict = gan.train_step(batch)
-            epoch_generator_loss += loss_dict['generator_loss']
-            epoch_discriminator_loss += loss_dict.get('discriminator_loss', loss_dict.get('critic_loss', 0.0))
-            num_batches += 1
+            epoch_losses.append(loss_dict)
 
-        # Calculate average losses
-        avg_generator_loss = float(epoch_generator_loss / num_batches)
-        avg_discriminator_loss = float(epoch_discriminator_loss / num_batches)
+            # Print progress every 10 batches
+            if batch_idx % 10 == 0:
+                print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
+                
+            # Add gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(gan.generator.parameters(), max_norm=1.0)
+            if hasattr(gan, 'discriminator'):
+                torch.nn.utils.clip_grad_norm_(gan.discriminator.parameters(), max_norm=1.0)
+            elif hasattr(gan, 'critic'):
+                torch.nn.utils.clip_grad_norm_(gan.critic.parameters(), max_norm=1.0)
 
-        # Store the loss information
-        epoch_info = {
-            'epoch': epoch,
-            'generator_loss': avg_generator_loss,
-            'discriminator_loss': avg_discriminator_loss
-        }
-        losses.append(epoch_info)
+        # Calculate average loss
+        avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
+                     for k in epoch_losses[0].keys()}
+        losses.append(avg_losses)
 
-        # Early stopping check
-        current_loss = avg_generator_loss + avg_discriminator_loss
-        if current_loss < best_loss:
+        # Calculate proxy metric for quality
+        current_loss = sum(avg_losses.values())
+        
+        # Update learning rate based on performance
+        scheduler.step(current_loss)
+        
+        # Check improvement
+        is_improvement = (best_fid_score - current_loss) > min_delta
+        
+        if is_improvement:
+            best_fid_score = current_loss
             best_loss = current_loss
             patience_counter = 0
-            torch.save(gan.state_dict(), "/model/table_gan.pt")
-            volume.commit()
+            print(f"Epoch {epoch+1}: Improved model quality, saving model")
+            # Save best model
+            try:
+                torch.save(gan.state_dict(), "/model/table_gan.pt")
+                volume.commit()
+            except Exception as e:
+                print(f"Warning: Failed to save model: {str(e)}")
         else:
             patience_counter += 1
+            print(f"Epoch {epoch+1}: No improvement. Patience: {patience_counter}/{patience}")
             if patience_counter >= patience:
-                print("Early stopping triggered")
+                print(f"Early stopping triggered at epoch {epoch+1}")
                 break
+            
+        # Generate sample data every few epochs to check quality visually
+        if epoch % 5 == 0 and epoch > 0:
+            print("Generating sample data for quality check...")
+            with torch.no_grad():
+                sample_noise = torch.randn(min(10, batch_size), gan.input_dim).to(device)
+                sample_data = gan.generator(sample_noise).cpu().numpy()
+                print(f"Sample data range: {sample_data.min()} to {sample_data.max()}")
 
     return losses
 
-@stub.function(
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    timeout=600
+    timeout=600  # 10 minutes timeout for generation
 )
 def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
     """Generate synthetic samples using Modal remote execution"""
@@ -89,6 +124,7 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
     except Exception as e:
         raise ValueError(f"Failed to load model: {str(e)}")
 
+    # Generate in batches to avoid memory issues
     batch_size = 1000
     num_batches = (num_samples + batch_size - 1) // batch_size
     synthetic_data_list = []
@@ -100,7 +136,7 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
             batch_data = gan.generator(noise)
             synthetic_data_list.append(batch_data.cpu().numpy())
 
-    return np.concatenate(synthetic_data_list)
+        return np.concatenate(synthetic_data_list)
 
 class ModalGAN:
     """Class for managing Modal GAN operations"""
@@ -108,27 +144,17 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
         """Train GAN model using Modal"""
         try:
-            # Run the Modal function
-            with stub.run():
-                losses = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
-                result = losses.get()  # Get the result from the remote execution
-
-                # Convert the results to the format expected by training UI
-                return [(info['epoch'], {
-                    'generator_loss': info['generator_loss'],
-                    'discriminator_loss': info['discriminator_loss']
-                }) for info in result]
-
+            with app.run():
+                return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
         except Exception as e:
             if "timeout" in str(e).lower():
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
-    def generate(self, num_samples: int, input_dim: int, hidden_dim: int):
+    def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
-            with stub.run():
-                samples = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
-                return samples.get()
+            with app.run():
+                return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")

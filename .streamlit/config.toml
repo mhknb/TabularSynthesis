@@ -11,7 +11,6 @@ gatherUsageStats = false
 
 [global]
 developmentMode = false
-disableWatchdogWarning = true
 
 [client]
 showErrorDetails = true
@@ -19,6 +18,7 @@ toolbarMode = "minimal"
 
 [runner]
 magicEnabled = true
+installTracer = true
 fastReruns = true
 
 [logger]
