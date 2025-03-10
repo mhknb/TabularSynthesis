@@ -6,6 +6,7 @@ import streamlit as st
 import torch
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt # Added matplotlib import
 from src.data_processing.data_loader import DataLoader
 from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
@@ -22,6 +23,22 @@ st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
 # Initialize Modal resources
 modal_gan = ModalGAN()
+
+def plot_training_losses():
+    """Plot training losses"""
+    if 'training_losses' not in st.session_state:
+        return None
+
+    losses = st.session_state.training_losses
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(losses['epochs'], losses['generator'], label='Generator Loss', color='blue')
+    ax.plot(losses['epochs'], losses['discriminator'], label='Discriminator/Critic Loss', color='orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.set_title('Training Losses')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    return fig
 
 def main():
     st.title("Synthetic Tabular Data Generator")
@@ -326,6 +343,7 @@ def main():
                         )
 
                     st.session_state.total_epochs = model_config['epochs']
+                    st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []} # Initialize loss storage
                     losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
                         # Generate data based on selected condition values with their proportions
@@ -364,6 +382,12 @@ def main():
                             synthetic_data = synthetic_data[indices]
                     else:
                         synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
+
+                    # Display training losses plot
+                    st.subheader("Training Progress")
+                    loss_fig = plot_training_losses()
+                    if loss_fig:
+                        st.pyplot(loss_fig)
 
                 # Inverse transform
                 result_df = pd.DataFrame()

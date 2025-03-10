@@ -131,3 +131,13 @@ def training_progress(epoch: int, losses: dict):
     else:
         status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
                         f"Discriminator Loss: {losses['discriminator_loss']:.4f}")
+
+    # Store losses for plotting
+    if 'training_losses' not in st.session_state:
+        st.session_state.training_losses = {'generator': [], 'discriminator': [], 'epochs': []}
+
+    st.session_state.training_losses['generator'].append(losses['generator_loss'])
+    st.session_state.training_losses['discriminator'].append(
+        losses.get('critic_loss', losses.get('discriminator_loss'))
+    )
+    st.session_state.training_losses['epochs'].append(epoch)
