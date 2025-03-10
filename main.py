@@ -277,7 +277,7 @@ def main():
                     # Local training fallback
                     train_data = torch.FloatTensor(transformed_data.values)
                     train_loader = torch.utils.data.DataLoader(
-                        train_data,
+                        train_data, 
                         batch_size=model_config['batch_size'],
                         shuffle=True
                     )
@@ -342,14 +342,29 @@ def main():
                             device=device
                         )
 
+                    # Initialize training progress tracking
                     st.session_state.total_epochs = model_config['epochs']
+
                     # Clear previous training state
                     for key in ['progress_bar', 'status_text', 'loss_chart', 'training_losses']:
                         if key in st.session_state:
                             del st.session_state[key]
 
-                    st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []} # Initialize loss storage
+                    # Create placeholder for loss plot
+                    loss_plot_placeholder = st.empty()
+
+                    # Initialize loss storage
+                    st.session_state.training_losses = {'epochs': [], 'generator': [], 'discriminator': []}
                     losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
+
+
+                    # Final loss plot
+                    st.subheader("Training Progress")
+                    final_loss_plot = components.plot_training_losses()
+                    if final_loss_plot:
+                        st.pyplot(final_loss_plot)
+
+
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
                         # Generate data based on selected condition values with their proportions
                         condition_values = model_config['condition_values']
@@ -389,10 +404,7 @@ def main():
                         synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
                     # Display training losses plot
-                    st.subheader("Training Progress")
-                    loss_fig = plot_training_losses()
-                    if loss_fig:
-                        st.pyplot(loss_fig)
+                    
 
                 # Inverse transform
                 result_df = pd.DataFrame()

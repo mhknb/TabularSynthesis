@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from typing import Tuple, Optional
 import io
+import matplotlib.pyplot as plt
 
 def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """Create file upload widget and handle uploaded file"""
@@ -146,7 +147,6 @@ def training_progress(epoch: int, losses: dict):
     st.session_state.training_losses['epochs'].append(epoch)
 
     # Update loss plot
-    import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(st.session_state.training_losses['epochs'], 
             st.session_state.training_losses['generator'], 
@@ -161,3 +161,25 @@ def training_progress(epoch: int, losses: dict):
     ax.grid(True, alpha=0.3)
     st.session_state.loss_chart.pyplot(fig)
     plt.close(fig)
+
+def plot_training_losses():
+    """Plot training losses from session state"""
+    if 'training_losses' not in st.session_state:
+        return None
+
+    if not st.session_state.training_losses['epochs']:
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(st.session_state.training_losses['epochs'], 
+            st.session_state.training_losses['generator'], 
+            label='Generator Loss', color='blue')
+    ax.plot(st.session_state.training_losses['epochs'], 
+            st.session_state.training_losses['discriminator'], 
+            label='Discriminator/Critic Loss', color='orange')
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Loss')
+    ax.set_title('Training Losses')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    return fig
