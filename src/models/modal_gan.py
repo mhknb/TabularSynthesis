@@ -51,20 +51,19 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         avg_discriminator_loss = epoch_discriminator_loss / num_batches
 
         # Store epoch results
-        epoch_result = {
-            'epoch': epoch,
-            'generator_loss': avg_generator_loss,
-            'discriminator_loss': avg_discriminator_loss
-        }
+        epoch_result = (epoch, {
+            'generator_loss': float(avg_generator_loss),
+            'discriminator_loss': float(avg_discriminator_loss)
+        })
         all_losses.append(epoch_result)
 
-        # Print progress
+        # Print progress for logging
         print(json.dumps({
             'type': 'epoch_update',
             'epoch': epoch,
             'total_epochs': epochs,
-            'generator_loss': avg_generator_loss,
-            'discriminator_loss': avg_discriminator_loss
+            'generator_loss': float(avg_generator_loss),
+            'discriminator_loss': float(avg_discriminator_loss)
         }))
 
         # Early stopping check
@@ -120,25 +119,12 @@ class ModalGAN:
     """Class for managing Modal GAN operations"""
 
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int):
-        """Train GAN model using Modal with real-time log processing"""
+        """Train GAN model using Modal"""
         try:
             with app.run():
-                # Call remote function and wait for result
-                remote_fn = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
-                all_losses = remote_fn.get()
-
-                # Process output and extract epoch information
-                reformatted_losses = []
-                for loss_dict in all_losses:
-                    reformatted_losses.append((
-                        loss_dict['epoch'],
-                        {
-                            'generator_loss': loss_dict['generator_loss'],
-                            'discriminator_loss': loss_dict['discriminator_loss']
-                        }
-                    ))
-
-                return reformatted_losses
+                # Call remote function directly
+                all_losses = train_gan_remote.call(data, input_dim, hidden_dim, epochs, batch_size)
+                return all_losses
 
         except Exception as e:
             if "timeout" in str(e).lower():
@@ -149,7 +135,7 @@ class ModalGAN:
         """Generate synthetic samples using Modal"""
         try:
             with app.run():
-                remote_fn = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
-                return remote_fn.get()
+                # Call remote function directly
+                return generate_samples_remote.call(num_samples, input_dim, hidden_dim)
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
