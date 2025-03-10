@@ -270,7 +270,7 @@ def main():
                             # Create a placeholder for the loss plot
                             loss_plot = st.empty()
 
-                            # Train on Modal and process logs in real-time
+                            # Train on Modal
                             all_losses = modal_gan.train(
                                 transformed_data,
                                 input_dim=transformed_data.shape[1],
@@ -455,7 +455,6 @@ def main():
                         synthetic_data = gan.generate_samples(len(df)).cpu().numpy()
 
                     # Display training losses plot
-
 
 
                 # Inverse transform
