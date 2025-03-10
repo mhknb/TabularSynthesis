@@ -122,9 +122,10 @@ class ModalGAN:
         """Train GAN model using Modal"""
         try:
             with app.run():
-                # Call remote function directly
-                all_losses = train_gan_remote.call(data, input_dim, hidden_dim, epochs, batch_size)
-                return all_losses
+                # Call remote function and get future
+                future = train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size)
+                # Wait for the result
+                return future.get()
 
         except Exception as e:
             if "timeout" in str(e).lower():
@@ -135,7 +136,9 @@ class ModalGAN:
         """Generate synthetic samples using Modal"""
         try:
             with app.run():
-                # Call remote function directly
-                return generate_samples_remote.call(num_samples, input_dim, hidden_dim)
+                # Call remote function and get future
+                future = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
+                # Wait for the result
+                return future.get()
         except Exception as e:
             raise RuntimeError(f"Modal generation failed: {str(e)}")
