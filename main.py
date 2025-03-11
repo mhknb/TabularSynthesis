@@ -317,7 +317,8 @@ def main():
                             hidden_dim=model_config['hidden_dim'],
                             clip_value=model_config['clip_value'],
                             n_critic=model_config['n_critic'],
-                            lambda_gp=model_config['lambda_gp'],
+                            lr_g=model_config['lr_g'],
+                            lr_d=model_config['lr_d'],
                             device=device,
                             use_wandb=True
                         )
@@ -684,14 +685,25 @@ def model_config_section():
             step=1,
             help="Number of critic updates per generator update"
         )
-        model_config['lambda_gp'] = st.slider(
-            "Gradient Penalty Coefficient",
-            min_value=0.0,
-            max_value=10.0,
-            value=10.0,
-            step=0.1,
-            help="Gradient penalty coefficient for WGAN"
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            model_config['lr_g'] = st.slider(
+                "Generator Learning Rate",
+                min_value=0.00001,
+                max_value=0.001,
+                value=0.0001,
+                format="%.5f",
+                help="Learning rate for the generator"
+            )
+        with col2:
+            model_config['lr_d'] = st.slider(
+                "Discriminator Learning Rate",
+                min_value=0.00001,
+                max_value=0.001,
+                value=0.0001,
+                format="%.5f",
+                help="Learning rate for the discriminator/critic"
+            )
 
 
     return model_config
