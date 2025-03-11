@@ -282,7 +282,10 @@ class DataEvaluator:
 
     def column_statistics(self) -> pd.DataFrame:
         """Compare basic statistics for each column"""
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        # Get columns present in both datasets
+        common_cols = [col for col in self.real_data.columns if col in self.synthetic_data.columns]
+        numerical_cols = self.real_data[common_cols].select_dtypes(include=['int64', 'float64']).columns
+        
         if len(numerical_cols) == 0:
             return pd.DataFrame()
 
@@ -300,12 +303,15 @@ class DataEvaluator:
             'synthetic_max': stats_synthetic.loc['max']
         })
 
+        # Add safe division to avoid division by zero
         comparison['mean_diff_pct'] = np.abs(
-            (comparison['real_mean'] - comparison['synthetic_mean']) / comparison['real_mean']
+            (comparison['real_mean'] - comparison['synthetic_mean']) / 
+            (comparison['real_mean'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
         comparison['std_diff_pct'] = np.abs(
-            (comparison['real_std'] - comparison['synthetic_std']) / comparison['real_std']
+            (comparison['real_std'] - comparison['synthetic_std']) / 
+            (comparison['real_std'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
         return comparison
