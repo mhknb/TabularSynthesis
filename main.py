@@ -314,7 +314,8 @@ def main():
                             clip_value=model_config['clip_value'],
                             n_critic=model_config['n_critic'],
                             lambda_gp=model_config['lambda_gp'],
-                            device=device
+                            device=device,
+                            use_wandb=True
                         )
 
                         # Run Bayesian optimization if requested

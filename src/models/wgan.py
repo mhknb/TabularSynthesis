@@ -35,7 +35,7 @@ class WGAN(BaseGAN):
         }
 
         if self.use_wandb:
-            wandb.init(project="wgan-tabular", entity="your_wandb_username") #Replace your_wandb_username
+            wandb.init(project="sd1") # Remove entity parameter to use your default account
 
     def build_generator(self) -> nn.Module:
         """Build generator network with enhanced architecture"""
