@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 from src.models.base_gan import BaseGAN
 import wandb
+import time
 
 class WGAN(BaseGAN):
     """WGAN implementation for tabular data"""
@@ -35,7 +36,22 @@ class WGAN(BaseGAN):
         }
 
         if self.use_wandb:
-            wandb.init(project="sd1") # Remove entity parameter to use your default account
+            try:
+                wandb.init(
+                    project="sd1", 
+                    name=f"wgan-run-{int(time.time())}", 
+                    entity="smilai",  # Specific entity set
+                    config={
+                        "hidden_dim": self.hidden_dim,
+                        "clip_value": self.clip_value,
+                        "n_critic": self.n_critic,
+                        "input_dim": self.input_dim,
+                    }
+                )
+                print(f"Wandb initialized successfully with entity: smilai, project: sd1")
+            except Exception as e:
+                print(f"Error initializing wandb: {e}")
+                self.use_wandb = False
 
     def build_generator(self) -> nn.Module:
         """Build generator network with enhanced architecture"""

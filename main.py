@@ -4,6 +4,10 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 import wandb #added for wandb integration
 
+# Configure wandb defaults
+os.environ["WANDB_ENTITY"] = "smilai"
+os.environ["WANDB_PROJECT"] = "sd1"
+
 import streamlit as st
 import torch
 import pandas as pd
