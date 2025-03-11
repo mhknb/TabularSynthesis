@@ -31,19 +31,19 @@ class WGAN(BaseGAN):
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(0.2),
 
             nn.Linear(self.hidden_dim, self.hidden_dim * 2),
             nn.BatchNorm1d(self.hidden_dim * 2),
-            nn.ReLU(),
+            nn.LeakyReLU(0.2),
 
             nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2),
             nn.BatchNorm1d(self.hidden_dim * 2),
-            nn.ReLU(),
+            nn.LeakyReLU(0.2),
 
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(0.2),
 
             nn.Linear(self.hidden_dim, self.input_dim),
             nn.Tanh()

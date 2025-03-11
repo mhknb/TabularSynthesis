@@ -38,7 +38,7 @@ class TVAE(BaseGAN):
                 self.bn2 = nn.BatchNorm1d(hidden_dim)
                 
             def forward(self, x):
-                h = F.relu(self.bn1(self.fc1(x)))
+                h = F.leaky_relu(self.bn1(self.fc1(x)), 0.2)
                 h = F.relu(self.bn2(self.fc2(h)))
                 return self.fc31(h), self.fc32(h)
                 
