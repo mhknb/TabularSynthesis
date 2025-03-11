@@ -1,17 +1,18 @@
 import torch
 import torch.nn as nn
+from torch.nn.utils import spectral_norm
 from src.models.base_gan import BaseGAN
 
 class WGAN(BaseGAN):
     """WGAN implementation for tabular data"""
 
     def __init__(self, input_dim: int, hidden_dim: int = 256, clip_value: float = 0.01, n_critic: int = 5, 
-             lr_g: float = 0.0001, lr_d: float = 0.0001, lambda_gp: float = 10.0, device: str = 'cpu'):
+             lr_g: float = 0.0001, lr_d: float = 0.0001, device: str = 'cpu'):
         super().__init__(input_dim, device)
         self.hidden_dim = hidden_dim
         self.clip_value = clip_value
         self.n_critic = n_critic
-        self.lambda_gp = lambda_gp
+        # No need for lambda_gp with spectral normalization
 
         self.generator = self.build_generator().to(device)
         self.discriminator = self.build_discriminator().to(device)
@@ -50,21 +51,21 @@ class WGAN(BaseGAN):
         )
 
     def build_discriminator(self) -> nn.Module:
-        """Build discriminator network with enhanced architecture"""
+        """Build discriminator network with spectral normalization for Lipschitz constraint"""
         return nn.Sequential(
-            nn.Linear(self.input_dim, self.hidden_dim),
+            spectral_norm(nn.Linear(self.input_dim, self.hidden_dim)),
             nn.LeakyReLU(0.2),
 
-            nn.Linear(self.hidden_dim, self.hidden_dim * 2),
+            spectral_norm(nn.Linear(self.hidden_dim, self.hidden_dim * 2)),
             nn.LeakyReLU(0.2),
 
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2),
+            spectral_norm(nn.Linear(self.hidden_dim * 2, self.hidden_dim * 2)),
             nn.LeakyReLU(0.2),
 
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
+            spectral_norm(nn.Linear(self.hidden_dim * 2, self.hidden_dim)),
             nn.LeakyReLU(0.2),
 
-            nn.Linear(self.hidden_dim, 1)
+            spectral_norm(nn.Linear(self.hidden_dim, 1))
         )
 
     def train_step(self, real_data: torch.Tensor) -> dict:
@@ -83,26 +84,13 @@ class WGAN(BaseGAN):
         disc_real = self.discriminator(real_data)
         disc_fake = self.discriminator(fake_data.detach())
 
-        # Wasserstein loss
+        # Wasserstein loss with spectral normalization
+        # Spectral normalization already enforces Lipschitz constraint, so we can simplify this
         wasserstein_distance = torch.mean(disc_real) - torch.mean(disc_fake)
         disc_loss = -wasserstein_distance
-
-        # Gradient penalty
-        alpha = torch.rand(batch_size, 1, device=self.device)
-        interpolated = alpha * real_data + (1 - alpha) * fake_data
-        interpolated.requires_grad_(True)
-        disc_interpolated = self.discriminator(interpolated)
-        grad_outputs = torch.ones_like(disc_interpolated)
-        gradients = torch.autograd.grad(
-            outputs=disc_interpolated,
-            inputs=interpolated,
-            grad_outputs=grad_outputs,
-            create_graph=True,
-            retain_graph=True,
-        )[0]
-        grad_norm = gradients.norm(2, 1)
-        grad_penalty = ((grad_norm - 1) ** 2).mean()
-        disc_loss += self.lambda_gp * grad_penalty
+        
+        # Note: With spectral normalization, we don't need the gradient penalty
+        # as spectral normalization directly constrains the Lipschitz constant
 
         disc_loss.backward()
         self.d_optimizer.step()
@@ -146,8 +134,7 @@ class WGAN(BaseGAN):
         # Define parameter ranges
         param_ranges = {
             'lr_d': (0.00001, 0.001),
-            'lr_g': (0.00001, 0.001),
-            'lambda_gp': (1.0, 20.0)
+            'lr_g': (0.00001, 0.001)
         }
         
         # Define objective function
@@ -161,7 +148,6 @@ class WGAN(BaseGAN):
                     n_critic=self.n_critic,
                     lr_g=params['lr_g'],
                     lr_d=params['lr_d'],
-                    lambda_gp=params['lambda_gp'],
                     device=self.device
                 )
                 
@@ -208,7 +194,6 @@ class WGAN(BaseGAN):
         # Update model with best parameters
         self.g_optimizer = torch.optim.Adam(self.generator.parameters(), lr=best_params['lr_g'], betas=(0.5, 0.9))
         self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=best_params['lr_d'], betas=(0.5, 0.9))
-        self.lambda_gp = best_params['lambda_gp']
         
         return best_params, history_df
 
@@ -223,7 +208,6 @@ class WGAN(BaseGAN):
             'hidden_dim': self.hidden_dim,
             'clip_value': self.clip_value,
             'n_critic': self.n_critic,
-            'lambda_gp': self.lambda_gp,
             'device': self.device
         }
 
@@ -237,5 +221,7 @@ class WGAN(BaseGAN):
         self.hidden_dim = state_dict['hidden_dim']
         self.clip_value = state_dict['clip_value']
         self.n_critic = state_dict['n_critic']
-        self.lambda_gp = state_dict['lambda_gp']
+        # For backward compatibility with older state dicts that may have lambda_gp
+        if 'lambda_gp' in state_dict:
+            pass  # We ignore it now as we're using spectral normalization
         self.device = state_dict['device']
