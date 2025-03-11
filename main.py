@@ -18,6 +18,7 @@ from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
 from sklearn.model_selection import train_test_split
+from bayes_opt import BayesianOptimization
 
 # Initialize event loop for async operations
 try:
@@ -291,8 +292,28 @@ def main():
                             hidden_dim=model_config['hidden_dim'],
                             clip_value=model_config['clip_value'],
                             n_critic=model_config['n_critic'],
+                            lambda_gp=model_config['lambda_gp'],
                             device=device
                         )
+
+                        # Run Bayesian optimization if requested
+                        if model_config.get('use_bayesian_opt', False):
+                            with st.spinner("Running Bayesian hyperparameter optimization..."):
+                                best_params, history = gan.optimize_hyperparameters(
+                                    train_loader, 
+                                    n_epochs=model_config['bayes_epochs'],
+                                    n_iterations=model_config['bayes_iterations']
+                                )
+
+                                # Display optimization results
+                                st.success("Hyperparameter optimization completed!")
+                                st.write("Best Parameters:")
+                                for param, value in best_params.items():
+                                    st.write(f"- {param}: {value:.6f}")
+
+                                # Show optimization history
+                                st.subheader("Optimization History")
+                                st.dataframe(history)
                     elif model_config['model_type'] == 'CGAN':
                         # For CGAN, we need to identify a condition column
                         if 'condition_column' in model_config and model_config['condition_column'] in df.columns:
@@ -554,6 +575,32 @@ def model_config_section():
             step=1,
             help="Number of critic updates per generator update"
         )
+        model_config['lambda_gp'] = st.slider(
+            "Gradient Penalty Coefficient",
+            min_value=0.0,
+            max_value=10.0,
+            value=10.0,
+            step=0.1,
+            help="Gradient penalty coefficient for WGAN"
+        )
+        model_config['use_bayesian_opt'] = st.checkbox("Use Bayesian Optimization", value=False)
+        if model_config['use_bayesian_opt']:
+            model_config['bayes_epochs'] = st.slider(
+                "Bayesian Optimization Epochs",
+                min_value=10,
+                max_value=500,
+                value=50,
+                step=10,
+                help="Number of epochs per Bayesian Optimization iteration"
+            )
+            model_config['bayes_iterations'] = st.slider(
+                "Bayesian Optimization Iterations",
+                min_value=1,
+                max_value=50,
+                value=10,
+                step=1,
+                help="Number of iterations for Bayesian Optimization"
+            )
 
     return model_config
 
