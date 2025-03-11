@@ -552,7 +552,7 @@ def model_config_section():
     model_config['batch_size'] = st.slider(
         "Batch Size",
         min_value=8,
-        max_value=128,
+        max_value=750,
         value=32,
         step=8,
         help="Number of samples per training batch. Will be adjusted if larger than dataset size."
