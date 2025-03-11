@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 from src.models.base_gan import BaseGAN
 
@@ -80,9 +81,17 @@ class WGAN(BaseGAN):
         noise = torch.randn(batch_size, self.input_dim).to(self.device)
         fake_data = self.generator(noise)
 
-        # Discriminator scores
-        disc_real = self.discriminator(real_data)
-        disc_fake = self.discriminator(fake_data.detach())
+        # Extract features and get discriminator scores
+        intermediate_layers = self.discriminator[:-1]
+        final_layer = self.discriminator[-1]
+        
+        # Forward pass through intermediate layers and final layer separately
+        feat_real = intermediate_layers(real_data)
+        feat_fake = intermediate_layers(fake_data.detach())
+        
+        # Get final discriminator scores
+        disc_real = final_layer(feat_real)
+        disc_fake = final_layer(feat_fake)
 
         # Wasserstein loss with spectral normalization
         # Spectral normalization already enforces Lipschitz constraint, so we can simplify this
@@ -98,8 +107,22 @@ class WGAN(BaseGAN):
         # Train Generator
         self.g_optimizer.zero_grad()
         fake_data = self.generator(noise)
-        disc_fake = self.discriminator(fake_data)
-        gen_loss = -torch.mean(disc_fake)
+        
+        # Extract features from intermediate layers for feature matching
+        intermediate_layers = self.discriminator[:-1]
+        final_layer = self.discriminator[-1]
+        
+        with torch.no_grad():
+            feat_real = intermediate_layers(real_data)
+        
+        feat_fake = intermediate_layers(fake_data)
+        disc_fake = final_layer(feat_fake)
+        
+        # Wasserstein loss + Feature matching loss
+        wasserstein_loss = -torch.mean(disc_fake)
+        feature_matching_loss = torch.nn.functional.mse_loss(feat_real, feat_fake)
+        
+        gen_loss = wasserstein_loss + feature_matching_loss * 0.5
         gen_loss.backward()
         self.g_optimizer.step()
 
