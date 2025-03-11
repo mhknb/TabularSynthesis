@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.gitFull
     pkgs.xsimd
     pkgs.libxcrypt
     pkgs.tk

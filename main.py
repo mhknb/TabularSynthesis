@@ -2,6 +2,7 @@ import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+import wandb #added for wandb integration
 
 import streamlit as st
 import torch
@@ -212,22 +213,22 @@ def main():
                 if missing_cols:
                     st.error(f"The following selected columns are missing from the dataset: {', '.join(missing_cols)}")
                     return
-                
+
                 # Only use columns that exist in the dataframe
                 valid_columns = [col for col in selected_columns if col in train_df.columns]
-                
+
                 if not valid_columns:
                     st.error("No valid columns selected for transformation")
                     return
-                
+
                 st.info(f"Transforming {len(valid_columns)} columns")
-                
+
                 for col in valid_columns:
                     try:
                         if col not in column_types:
                             st.warning(f"No type specified for column '{col}'. Skipping.")
                             continue
-                            
+
                         col_type = column_types[col]
                         if col_type == 'Continuous':
                             transformed_col = transformer.transform_continuous(
@@ -384,7 +385,33 @@ def main():
                         )
 
                     st.session_state.total_epochs = model_config['epochs']
-                    losses = gan.train(train_loader, model_config['epochs'], components.training_progress)
+                    # Train the model
+                    with st.spinner(f"Training {model_config['model_type']} model for {model_config['epochs']} epochs..."):
+                        # Setup progress bar
+                        progress_bar = st.progress(0)
+                        epoch_status = st.empty()
+
+                        # Train loop
+                        for epoch in range(model_config['epochs']):
+                            epoch_metrics = {}
+                            for i, batch_data in enumerate(train_loader):
+                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+                                epoch_metrics.update(metrics)
+
+                            # Update progress
+                            progress = (epoch + 1) / model_config['epochs']
+                            progress_bar.progress(progress)
+                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {epoch_metrics['disc_loss']:.4f}, Gen Loss: {epoch_metrics['gen_loss']:.4f}")
+
+                        # Save the trained model
+                        model_dir = "models"
+                        os.makedirs(model_dir, exist_ok=True)
+                        torch.save(gan.state_dict(), os.path.join(model_dir, f"{model_config['model_type'].lower()}_model.pt"))
+
+                        # Finish wandb run if it's a WGAN
+                        if model_config['model_type'] == 'WGAN':
+                            gan.finish_wandb()
+
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
                         # Generate data based on selected condition values with their proportions
                         condition_values = model_config['condition_values']
@@ -427,12 +454,12 @@ def main():
                 result_df = pd.DataFrame()
                 col_idx = 0
                 transformed_columns = []
-                
+
                 for col in selected_columns:  # Use only selected columns
                     # Skip if column type isn't defined
                     if col not in column_types:
                         continue
-                        
+
                     col_type = column_types[col]
                     try:
                         if col_type in ['Continuous', 'Ordinal']:
@@ -476,7 +503,7 @@ def main():
                             result_df[col] = pd.NaT
                         else:
                             result_df[col] = None
-                
+
                 # Ensure all columns from original data are present in result
                 for col in original_columns:
                     if col not in result_df.columns:
