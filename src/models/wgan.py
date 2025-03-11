@@ -126,6 +126,92 @@ class WGAN(BaseGAN):
             'wasserstein_distance': wasserstein_distance.item()
         }
 
+    def optimize_hyperparameters(self, train_loader, n_epochs=50, n_iterations=10):
+        """
+        Perform Bayesian optimization of hyperparameters
+        
+        Args:
+            train_loader: DataLoader with training data
+            n_epochs: Number of epochs to train for each iteration
+            n_iterations: Number of optimization iterations
+            
+        Returns:
+            best_params: Dictionary of best parameters
+            history_df: DataFrame with optimization history
+        """
+        from src.utils.optimization import BayesianOptimizer
+        import pandas as pd
+        import numpy as np
+        
+        # Define parameter ranges
+        param_ranges = {
+            'lr_d': (0.00001, 0.001),
+            'lr_g': (0.00001, 0.001),
+            'lambda_gp': (1.0, 20.0)
+        }
+        
+        # Define objective function
+        def objective_function(params):
+            try:
+                # Create temporary model with new parameters
+                temp_model = WGAN(
+                    input_dim=self.input_dim,
+                    hidden_dim=self.hidden_dim,
+                    clip_value=self.clip_value,
+                    n_critic=self.n_critic,
+                    lr_g=params['lr_g'],
+                    lr_d=params['lr_d'],
+                    lambda_gp=params['lambda_gp'],
+                    device=self.device
+                )
+                
+                # Train for a few epochs
+                metrics_history = []
+                for epoch in range(n_epochs):
+                    epoch_metrics = {'epoch': epoch}
+                    for i, real_data in enumerate(train_loader):
+                        metrics = temp_model.train_step(real_data)
+                        epoch_metrics.update(metrics)
+                    metrics_history.append(epoch_metrics)
+                
+                # Calculate score - negative wasserstein distance (since we want to maximize)
+                # Use the average of the last 10% of epochs to reduce noise
+                last_n = max(1, int(n_epochs * 0.1))
+                last_metrics = metrics_history[-last_n:]
+                avg_wasserstein = np.mean([m['wasserstein_distance'] for m in last_metrics])
+                
+                # Return negative wasserstein distance as score (since we want to minimize wasserstein distance)
+                return -avg_wasserstein
+            
+            except Exception as e:
+                import traceback
+                print(f"Error in objective function: {e}")
+                print(traceback.format_exc())
+                return None
+        
+        # Create and run optimizer
+        optimizer = BayesianOptimizer(param_ranges, objective_function, n_iterations=n_iterations)
+        
+        # Define callback for Streamlit progress
+        def callback(i, params, score):
+            import streamlit as st
+            if 'optimization_progress' not in st.session_state:
+                st.session_state.optimization_progress = []
+            st.session_state.optimization_progress.append({
+                'iteration': i+1, 
+                'params': params,
+                'score': score
+            })
+        
+        best_params, _, history_df = optimizer.optimize(callback=callback)
+        
+        # Update model with best parameters
+        self.g_optimizer = torch.optim.Adam(self.generator.parameters(), lr=best_params['lr_g'], betas=(0.5, 0.9))
+        self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=best_params['lr_d'], betas=(0.5, 0.9))
+        self.lambda_gp = best_params['lambda_gp']
+        
+        return best_params, history_df
+
     def state_dict(self):
         """Get state dict for model persistence"""
         return {
