@@ -5,6 +5,7 @@ from torch.nn.utils import spectral_norm
 from src.models.base_gan import BaseGAN
 import wandb
 import time
+import os
 
 class WGAN(BaseGAN):
     """WGAN implementation for tabular data"""
@@ -34,21 +35,36 @@ class WGAN(BaseGAN):
             'disc_loss': [],
             'wasserstein_distance': []
         }
+        
+        # Initialized flag to track if wandb has been initialized
+        self.wandb_initialized = False
 
         if self.use_wandb:
             try:
-                wandb.init(
-                    project="sd1", 
-                    name=f"wgan-run-{int(time.time())}", 
-                    entity="smilai",  # Specific entity set
-                    config={
-                        "hidden_dim": self.hidden_dim,
-                        "clip_value": self.clip_value,
-                        "n_critic": self.n_critic,
-                        "input_dim": self.input_dim,
-                    }
-                )
-                print(f"Wandb initialized successfully with entity: smilai, project: sd1")
+                # Check if wandb is already initialized 
+                if wandb.run is None:
+                    # Ensure environment variables are set
+                    if not os.environ.get("WANDB_ENTITY"):
+                        os.environ["WANDB_ENTITY"] = "smilai"
+                    if not os.environ.get("WANDB_PROJECT"):
+                        os.environ["WANDB_PROJECT"] = "sd1"
+                    
+                    wandb.init(
+                        project="sd1", 
+                        name=f"wgan-run-{int(time.time())}", 
+                        entity="smilai",  # Specific entity set
+                        config={
+                            "hidden_dim": self.hidden_dim,
+                            "clip_value": self.clip_value,
+                            "n_critic": self.n_critic,
+                            "input_dim": self.input_dim,
+                        }
+                    )
+                    self.wandb_initialized = True
+                    print(f"Wandb initialized successfully with entity: smilai, project: sd1")
+                else:
+                    self.wandb_initialized = True
+                    print(f"Using existing wandb run: {wandb.run.name}")
             except Exception as e:
                 print(f"Error initializing wandb: {e}")
                 self.use_wandb = False
@@ -174,12 +190,20 @@ class WGAN(BaseGAN):
         self.eval_metrics['disc_loss'].append(avg_disc_loss)
         self.eval_metrics['wasserstein_distance'].append(wasserstein_distance)
 
-        if self.use_wandb:
-            wandb.log({
-                "Wasserstein Distance": wasserstein_distance,
-                "Generator Loss": gen_loss.item(),
-                "Discriminator Loss": avg_disc_loss
-            })
+        # Log to wandb if enabled and initialized
+        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
+            try:
+                wandb.log({
+                    "Wasserstein Distance": wasserstein_distance,
+                    "Generator Loss": gen_loss.item(),
+                    "Discriminator Loss": avg_disc_loss,
+                    "Learning Rate Generator": self.g_optimizer.param_groups[0]['lr'],
+                    "Learning Rate Discriminator": self.d_optimizer.param_groups[0]['lr'],
+                    "Step": current_step
+                })
+            except Exception as e:
+                print(f"Error logging to wandb: {e}")
+                # Don't disable wandb for future attempts if there's a temporary issue
 
         return {
             'disc_loss': avg_disc_loss,
@@ -278,11 +302,16 @@ class WGAN(BaseGAN):
 
     def finish_wandb(self):
         """Finish the wandb run when training is complete"""
-        if self.use_wandb:
+        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
             try:
-                wandb.finish()
+                # Only finish if this class initialized wandb
+                if self.wandb_initialized:
+                    wandb.finish()
+                    self.wandb_initialized = False
+                    print("WandB run finished")
             except Exception as e:
                 print(f"Error finishing wandb run: {e}")
+                self.wandb_initialized = False
 
     def state_dict(self):
         """Get state dict for model persistence"""

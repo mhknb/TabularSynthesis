@@ -32,7 +32,9 @@ try:
     )
     
     # Initialize WGAN
-    device = torch.device('cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
     wgan = WGAN(
         input_dim=n_features,
         hidden_dim=64,
@@ -48,18 +50,21 @@ try:
     
     # Train for a few steps
     n_epochs = 3
+    total_steps = 0
     
     print(f"Starting training for {n_epochs} epochs...")
     for epoch in range(n_epochs):
         epoch_losses = []
         for i, batch_data in enumerate(train_loader):
             # Perform one training step
-            metrics = wgan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+            metrics = wgan.train_step(batch_data, current_step=total_steps)
+            total_steps += 1
             
             # Print progress
             if i % 2 == 0:
                 print(f"Epoch {epoch+1}/{n_epochs}, Batch {i+1}/{len(train_loader)}, "
-                      f"Gen Loss: {metrics['gen_loss']:.4f}, Disc Loss: {metrics['disc_loss']:.4f}")
+                      f"Gen Loss: {metrics['gen_loss']:.4f}, Disc Loss: {metrics['disc_loss']:.4f}, "
+                      f"Wasserstein: {metrics['wasserstein_distance']:.4f}")
             
             epoch_losses.append(metrics)
     
@@ -67,6 +72,7 @@ try:
     print("Generating samples...")
     samples = wgan.generate_samples(10)
     print(f"Generated samples shape: {samples.shape}")
+    print(f"Sample values: {samples[0][:5]}")  # Print first 5 values of first sample
     
     # Finish wandb run
     wgan.finish_wandb()
