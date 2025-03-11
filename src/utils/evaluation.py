@@ -259,7 +259,7 @@ class DataEvaluator:
             synth_var = self.synthetic_data[col].var()
             if real_var > 0 and synth_var > 0:
                 valid_cols.append(col)
-        
+
         if len(valid_cols) <= 1:
             # Not enough valid columns for correlation calculation
             return 0.0
@@ -267,13 +267,13 @@ class DataEvaluator:
         # Calculate correlation matrices with valid columns only
         real_corr = self.real_data[valid_cols].corr().fillna(0)
         synth_corr = self.synthetic_data[valid_cols].corr().fillna(0)
-        
+
         # Calculate norm of difference
         try:
             correlation_distance = np.linalg.norm(real_corr - synth_corr)
             max_possible_distance = np.sqrt(2 * len(valid_cols))
             correlation_similarity = 1 - (correlation_distance / max_possible_distance)
-            
+
             # Ensure result is in valid range
             return max(0.0, min(1.0, correlation_similarity))
         except:
@@ -285,7 +285,7 @@ class DataEvaluator:
         # Get columns present in both datasets
         common_cols = [col for col in self.real_data.columns if col in self.synthetic_data.columns]
         numerical_cols = self.real_data[common_cols].select_dtypes(include=['int64', 'float64']).columns
-        
+
         if len(numerical_cols) == 0:
             return pd.DataFrame()
 
@@ -345,29 +345,48 @@ class DataEvaluator:
             plt.close()
         return fig
 
-    def evaluate_all(self, target_column: str = None, task_type: str = 'classification') -> dict:
-        """Run all evaluations and return comprehensive metrics"""
+    def calculate_distribution_divergence(self) -> dict:
+        """Calculate JSD and WD for numerical columns"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-
-        # Calculate JSD and WD for numerical columns
         divergence_metrics = {}
         for col in numerical_cols:
             jsd = self.calculate_jsd(self.real_data[col], self.synthetic_data[col])
             wd = self.calculate_wasserstein(self.real_data[col], self.synthetic_data[col])
             divergence_metrics[f'{col}_jsd'] = jsd
             divergence_metrics[f'{col}_wasserstein'] = wd
+        return divergence_metrics
 
-        evaluation = {
-            'statistical_tests': self.statistical_similarity(),
-            'correlation_similarity': self.correlation_similarity(),
-            'column_statistics': self.column_statistics().to_dict(),
-            'divergence_metrics': divergence_metrics
-        }
+    def evaluate_all(self, target_column=None, task_type='classification'):
+        """Run all evaluations and return combined results"""
+        results = {}
+
+        try:
+            results['statistical_similarity'] = self.statistical_similarity()
+        except Exception as e:
+            results['statistical_similarity'] = f"Error: {str(e)}"
+
+        try:
+            results['correlation_similarity'] = self.correlation_similarity()
+        except Exception as e:
+            results['correlation_similarity'] = f"Error: {str(e)}"
+
+        try:
+            results['column_statistics'] = self.column_statistics()
+        except Exception as e:
+            results['column_statistics'] = f"Error: {str(e)}"
+
+        try:
+            results['divergence_metrics'] = self.calculate_distribution_divergence()
+        except Exception as e:
+            results['divergence_metrics'] = f"Error: {str(e)}"
 
         if target_column:
-            evaluation['ml_utility'] = self.evaluate_ml_utility(
-                target_column=target_column,
-                task_type=task_type
-            )
+            if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
+                try:
+                    results['ml_utility'] = self.evaluate_ml_utility(target_column, task_type)
+                except Exception as e:
+                    results['ml_utility'] = f"Error: {str(e)}"
+            else:
+                results['ml_utility'] = "Target column not found in both datasets"
 
-        return evaluation
+        return results

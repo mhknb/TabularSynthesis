@@ -207,8 +207,27 @@ def main():
                 transformer = DataTransformer()
                 transformed_data = pd.DataFrame()
 
-                for col in selected_columns:  # Use only selected columns
+                # Validate that selected columns exist in the dataframe
+                missing_cols = [col for col in selected_columns if col not in train_df.columns]
+                if missing_cols:
+                    st.error(f"The following selected columns are missing from the dataset: {', '.join(missing_cols)}")
+                    return
+                
+                # Only use columns that exist in the dataframe
+                valid_columns = [col for col in selected_columns if col in train_df.columns]
+                
+                if not valid_columns:
+                    st.error("No valid columns selected for transformation")
+                    return
+                
+                st.info(f"Transforming {len(valid_columns)} columns")
+                
+                for col in valid_columns:
                     try:
+                        if col not in column_types:
+                            st.warning(f"No type specified for column '{col}'. Skipping.")
+                            continue
+                            
                         col_type = column_types[col]
                         if col_type == 'Continuous':
                             transformed_col = transformer.transform_continuous(
@@ -233,6 +252,7 @@ def main():
                             transformed_data = pd.concat([transformed_data, dt_features], axis=1)
                     except Exception as e:
                         st.error(f"Error transforming column {col}: {str(e)}")
+                        st.exception(e)  # This will show the full traceback
                         return
 
                 # If no columns were selected or all transformations failed, display an error

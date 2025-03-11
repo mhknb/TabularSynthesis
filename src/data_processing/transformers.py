@@ -17,6 +17,9 @@ class DataTransformer:
 
     def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
         """Transform continuous data using specified method with missing value handling"""
+        if data is None:
+            raise ValueError(f"None data provided for column transformation")
+            
         if data.empty:
             raise ValueError(f"Empty data series provided for column {data.name}")
 
