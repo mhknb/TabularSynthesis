@@ -252,13 +252,33 @@ class DataEvaluator:
         if len(numerical_cols) == 0:
             return 0.0
 
-        real_corr = self.real_data[numerical_cols].corr()
-        synth_corr = self.synthetic_data[numerical_cols].corr()
-        correlation_distance = np.linalg.norm(real_corr - synth_corr)
-        max_possible_distance = np.sqrt(2 * len(numerical_cols))
-        correlation_similarity = 1 - (correlation_distance / max_possible_distance)
+        # Filter out columns with zero variance in either dataset
+        valid_cols = []
+        for col in numerical_cols:
+            real_var = self.real_data[col].var()
+            synth_var = self.synthetic_data[col].var()
+            if real_var > 0 and synth_var > 0:
+                valid_cols.append(col)
+        
+        if len(valid_cols) <= 1:
+            # Not enough valid columns for correlation calculation
+            return 0.0
 
-        return correlation_similarity
+        # Calculate correlation matrices with valid columns only
+        real_corr = self.real_data[valid_cols].corr().fillna(0)
+        synth_corr = self.synthetic_data[valid_cols].corr().fillna(0)
+        
+        # Calculate norm of difference
+        try:
+            correlation_distance = np.linalg.norm(real_corr - synth_corr)
+            max_possible_distance = np.sqrt(2 * len(valid_cols))
+            correlation_similarity = 1 - (correlation_distance / max_possible_distance)
+            
+            # Ensure result is in valid range
+            return max(0.0, min(1.0, correlation_similarity))
+        except:
+            # If calculation fails for any reason, return 0
+            return 0.0
 
     def column_statistics(self) -> pd.DataFrame:
         """Compare basic statistics for each column"""
