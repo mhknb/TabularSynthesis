@@ -119,7 +119,14 @@ class DataTransformer:
         """Inverse transform continuous data with range validation"""
         scaler = self.scalers.get(data.name)
         if scaler is None:
-            raise ValueError(f"No scaler found for column {data.name}")
+            # Instead of raising an error, return the original data
+            # This handles excluded columns that might be reintroduced
+            return data
+            
+        # Check for None values and handle them
+        if data.isnull().any():
+            # Fill None values with 0 before transformation
+            data = data.fillna(0)
 
         # Inverse transform
         transformed_data = scaler.inverse_transform(data.values.reshape(-1, 1)).flatten()
@@ -127,33 +134,46 @@ class DataTransformer:
         # Get original data range
         data_range = self.data_ranges.get(data.name)
         if data_range:
-            # Clamp values to original range
-            transformed_data = np.clip(
-                transformed_data,
-                data_range['min'],
-                data_range['max']
-            )
+            # Clamp values to original range, handling potential None values
+            min_val = data_range.get('min')
+            max_val = data_range.get('max')
+            
+            if min_val is not None and max_val is not None:
+                transformed_data = np.clip(
+                    transformed_data,
+                    min_val,
+                    max_val
+                )
 
             # Convert to original dtype if needed
-            if data_range['dtype'] in [np.int32, np.int64, int]:
+            if data_range.get('dtype') in [np.int32, np.int64, int]:
                 transformed_data = np.round(transformed_data).astype(data_range['dtype'])
 
         return pd.Series(transformed_data, name=data.name)
 
     def inverse_transform_categorical(self, data: pd.Series) -> pd.Series:
         """Inverse transform categorical data"""
+        # Handle None values in the data
+        if data.isnull().all():
+            return data
+            
         encoding_info = self.encoding_maps.get(data.name)
         if encoding_info is None:
-            raise ValueError(f"No encoding information found for column {data.name}")
+            # Instead of raising an error, return the original data
+            # This handles excluded columns that might be reintroduced
+            return data
+
+        # Fill any None values with 0 before transformation
+        data_filled = data.fillna(0)
 
         if encoding_info['method'] == 'label':
             encoder = self.encoders.get(data.name)
             if encoder is None:
-                raise ValueError(f"No encoder found for column {data.name}")
+                return data_filled
 
             # Ensure values are within valid range
             values = np.clip(
-                np.round(data.values),
+                np.round(data_filled.values),
                 0,
                 len(encoding_info['categories']) - 1
             ).astype(int)
@@ -164,7 +184,7 @@ class DataTransformer:
             )
         elif encoding_info['method'] == 'onehot':
             values = np.clip(
-                np.round(data.values),
+                np.round(data_filled.values),
                 0,
                 encoding_info['num_categories'] - 1
             ).astype(int)
@@ -174,7 +194,8 @@ class DataTransformer:
                 name=data.name
             )
 
-        raise ValueError(f"Unknown encoding method for column {data.name}")
+        # For unknown methods, return the original data instead of raising an error
+        return data
 
     def transform_datetime(self, data: pd.Series) -> pd.DataFrame:
         """Transform datetime into multiple features"""

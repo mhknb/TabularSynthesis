@@ -426,31 +426,60 @@ def main():
                 # Inverse transform
                 result_df = pd.DataFrame()
                 col_idx = 0
+                transformed_columns = []
+                
                 for col in selected_columns:  # Use only selected columns
+                    # Skip if column type isn't defined
+                    if col not in column_types:
+                        continue
+                        
                     col_type = column_types[col]
-                    if col_type in ['Continuous', 'Ordinal']:
-                        result_df[col] = transformer.inverse_transform_continuous(
-                            pd.Series(synthetic_data[:, col_idx], name=col)
-                        )
-                        col_idx += 1
-                    elif col_type == 'Categorical':
-                        result_df[col] = transformer.inverse_transform_categorical(
-                            pd.Series(synthetic_data[:, col_idx], name=col)
-                        )
-                        col_idx += 1
-                    elif col_type == 'Datetime':
-                        # Handle datetime reconstruction
-                        year = synthetic_data[:, col_idx]
-                        month = synthetic_data[:, col_idx + 1]
-                        day = synthetic_data[:, col_idx + 2]
-                        result_df[col] = pd.to_datetime(
-                            dict(year=year, month=month, day=day)
-                        )
-                        col_idx += 4
+                    try:
+                        if col_type in ['Continuous', 'Ordinal']:
+                            result_df[col] = transformer.inverse_transform_continuous(
+                                pd.Series(synthetic_data[:, col_idx], name=col)
+                            )
+                            transformed_columns.append(col)
+                            col_idx += 1
+                        elif col_type == 'Categorical':
+                            result_df[col] = transformer.inverse_transform_categorical(
+                                pd.Series(synthetic_data[:, col_idx], name=col)
+                            )
+                            transformed_columns.append(col)
+                            col_idx += 1
+                        elif col_type == 'Datetime':
+                            # Handle datetime reconstruction with error checking
+                            if col_idx + 2 < synthetic_data.shape[1]:  # Make sure we have enough columns
+                                year = synthetic_data[:, col_idx]
+                                month = synthetic_data[:, col_idx + 1]
+                                day = synthetic_data[:, col_idx + 2]
+                                try:
+                                    result_df[col] = pd.to_datetime(
+                                        dict(year=year, month=month, day=day),
+                                        errors='coerce'  # Convert invalid dates to NaT
+                                    )
+                                    transformed_columns.append(col)
+                                except:
+                                    result_df[col] = pd.NaT
+                                col_idx += 4
+                            else:
+                                result_df[col] = pd.NaT
+                    except Exception as e:
+                        st.warning(f"Error transforming column {col}: {str(e)}")
+                        result_df[col] = None
 
                 # Add excluded columns back with empty/NaN values if they were in the original data
                 for col in original_columns:
-                    if col not in selected_columns:
+                    if col not in transformed_columns:
+                        # Use appropriate NaN type based on column type
+                        if col in column_types and column_types[col] == 'Datetime':
+                            result_df[col] = pd.NaT
+                        else:
+                            result_df[col] = None
+                
+                # Ensure all columns from original data are present in result
+                for col in original_columns:
+                    if col not in result_df.columns:
                         result_df[col] = None
 
                 # Evaluate synthetic data
