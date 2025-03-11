@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler, StandardScaler, LabelEncoder
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler, LabelEncoder
 from sklearn.impute import SimpleImputer
 from datetime import datetime
 
@@ -56,6 +56,8 @@ class DataTransformer:
             scaler = MinMaxScaler(feature_range=(-1, 1))  # Use (-1,1) for GAN compatibility
         elif method == 'standard':
             scaler = StandardScaler()
+        elif method == 'robust':
+            scaler = RobustScaler()
         else:
             raise ValueError(f"Unknown scaling method: {method}")
 
