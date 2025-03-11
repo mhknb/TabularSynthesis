@@ -19,9 +19,25 @@ try:
     # Print user info
     user = wandb.api.viewer()
     print(f"Logged in as: {user.get('entity', 'unknown')}")
-    print(f"WandB Teams: {[team['name'] for team in user.get('teams', [])]}")
     
-    # Initialize a test run with reinit=True to ensure a new run is created
+    # Print teams safely - inspecting the actual structure first
+    teams = user.get('teams', [])
+    if teams:
+        if isinstance(teams, list):
+            # Try to safely extract team names
+            team_names = []
+            for team in teams:
+                if isinstance(team, dict) and 'name' in team:
+                    team_names.append(team['name'])
+                elif hasattr(team, 'name'):
+                    team_names.append(team.name)
+            print(f"WandB Teams: {team_names}")
+        else:
+            print(f"Teams data structure: {type(teams)}")
+    else:
+        print("No teams found")
+    
+    # Initialize a test run
     run = wandb.init(
         project="sd1",
         entity="smilai",
@@ -30,15 +46,8 @@ try:
         reinit=True
     )
     
-    # Create and log some dummy model data
-    dummy_model = torch.nn.Sequential(
-        torch.nn.Linear(10, 5),
-        torch.nn.ReLU(),
-        torch.nn.Linear(5, 1)
-    )
-    
     # Log some test metrics
-    for i in range(10):
+    for i in range(5):
         dummy_loss = 1.0 - (i * 0.1)
         dummy_acc = i * 0.1
         
@@ -48,21 +57,13 @@ try:
             "step": i
         })
         print(f"Logged metrics - Step {i}, Loss: {dummy_loss}, Accuracy: {dummy_acc}")
-        time.sleep(1)
-    
-    # Log a simple plot
-    wandb.log({"chart": wandb.plot.line_series(
-        xs=[[i for i in range(10)]], 
-        ys=[[np.random.rand() for _ in range(10)]], 
-        keys=["random values"], 
-        title="Random Values Plot"
-    )})
     
     # Finish the run
     wandb.finish()
     
     print(f"Test complete! Please check https://wandb.ai/smilai/sd1 to see your test run.")
-    print(f"Run URL: {run.get_url()}")
+    if hasattr(run, 'get_url'):
+        print(f"Run URL: {run.get_url()}")
     
 except Exception as e:
     print(f"Error testing wandb: {e}")
