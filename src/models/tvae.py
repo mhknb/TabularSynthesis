@@ -120,6 +120,150 @@ class TVAE(BaseGAN):
             samples = self.decoder(z)
             return samples
             
+    def optimize_hyperparameters(self, train_loader, n_epochs=50, n_iterations=10):
+        """
+        Perform Bayesian optimization of hyperparameters
+        
+        Args:
+            train_loader: DataLoader with training data
+            n_epochs: Number of epochs to train for each iteration
+            n_iterations: Number of optimization iterations
+            
+        Returns:
+            best_params: Dictionary of best parameters
+            history_df: DataFrame with optimization history
+        """
+        from src.utils.optimization import BayesianOptimizer
+        import pandas as pd
+        import numpy as np
+        
+        # Define parameter ranges
+        param_ranges = {
+            'learning_rate': (0.00001, 0.001),
+            'kl_weight': (0.1, 1.0),
+            'latent_dim': (64, 256)
+        }
+        
+        # Define objective function
+        def objective_function(params):
+            try:
+                # Create temporary model with new parameters
+                latent_dim = int(params['latent_dim'])
+                temp_model = TVAE(
+                    input_dim=self.input_dim,
+                    hidden_dim=self.hidden_dim,
+                    latent_dim=latent_dim,
+                    device=self.device
+                )
+                
+                # Update optimizer with new learning rate
+                temp_model.optimizer = torch.optim.Adam(
+                    list(temp_model.encoder.parameters()) + list(temp_model.decoder.parameters()),
+                    lr=params['learning_rate']
+                )
+                
+                # KL weight for balancing reconstruction and KL loss
+                kl_weight = params['kl_weight']
+                
+                # Train for a few epochs
+                metrics_history = []
+                for epoch in range(n_epochs):
+                    epoch_metrics = {'epoch': epoch}
+                    epoch_loss = 0.0
+                    batch_count = 0
+                    
+                    for i, real_data in enumerate(train_loader):
+                        try:
+                            # Custom training step with KL weight
+                            temp_model.optimizer.zero_grad()
+                            
+                            # Move data to device
+                            real_data = real_data.to(temp_model.device)
+                            
+                            # Encode
+                            mu, logvar = temp_model.encoder(real_data)
+                            
+                            # Reparameterize
+                            z = temp_model.reparameterize(mu, logvar)
+                            
+                            # Decode
+                            recon = temp_model.decoder(z)
+                            
+                            # Reconstruction loss (MSE)
+                            recon_loss = F.mse_loss(recon, real_data, reduction='sum')
+                            
+                            # KL divergence
+                            kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+                            
+                            # Total loss with weight
+                            loss = recon_loss + kl_weight * kl_loss
+                            
+                            loss.backward()
+                            temp_model.optimizer.step()
+                            
+                            metrics = {
+                                'total_loss': loss.item() / len(real_data),
+                                'reconstruction_loss': recon_loss.item() / len(real_data),
+                                'kl_loss': kl_loss.item() / len(real_data)
+                            }
+                            
+                            epoch_loss += metrics['total_loss']
+                            batch_count += 1
+                        except Exception as e:
+                            # Skip problematic batches
+                            continue
+                    
+                    if batch_count > 0:
+                        epoch_metrics['total_loss'] = epoch_loss / batch_count
+                        metrics_history.append(epoch_metrics)
+                
+                # Calculate score - negative of average total loss in last 10% of epochs
+                last_n = max(1, int(n_epochs * 0.1))
+                if len(metrics_history) < last_n:
+                    return None  # Not enough data points
+                    
+                last_metrics = metrics_history[-last_n:]
+                avg_loss = np.mean([m['total_loss'] for m in last_metrics])
+                
+                # Return negative loss as score (since we want to minimize loss)
+                return -avg_loss
+            
+            except Exception as e:
+                import traceback
+                print(f"Error in objective function: {e}")
+                print(traceback.format_exc())
+                return None
+        
+        # Create and run optimizer
+        optimizer = BayesianOptimizer(param_ranges, objective_function, n_iterations=n_iterations)
+        
+        # Define callback for Streamlit progress
+        def callback(i, params, score):
+            import streamlit as st
+            if 'optimization_progress' not in st.session_state:
+                st.session_state.optimization_progress = []
+            st.session_state.optimization_progress.append({
+                'iteration': i+1, 
+                'params': params,
+                'score': score
+            })
+        
+        best_params, _, history_df = optimizer.optimize(callback=callback)
+        
+        # Update model with best parameters
+        self.latent_dim = int(best_params['latent_dim'])
+        # Rebuild encoder and decoder with new latent_dim
+        self.encoder = self.build_encoder().to(self.device)
+        self.decoder = self.build_decoder().to(self.device)
+        
+        # Update optimizer
+        self.optimizer = torch.optim.Adam(
+            list(self.encoder.parameters()) + list(self.decoder.parameters()),
+            lr=best_params['learning_rate']
+        )
+        
+        return best_params, history_df
+
     def state_dict(self):
         """Get state dict for model persistence"""
         return {

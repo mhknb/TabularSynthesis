@@ -558,6 +558,34 @@ def model_config_section():
         help="Number of samples per training batch. Will be adjusted if larger than dataset size."
     )
 
+    # Bayesian Optimization UI controls for all models
+    model_config['use_bayesian_opt'] = st.checkbox(
+        "Use Bayesian Hyperparameter Optimization", 
+        value=False,
+        help="Automatically optimize hyperparameters using Bayesian optimization"
+    )
+
+    if model_config['use_bayesian_opt']:
+        col1, col2 = st.columns(2)
+        with col1:
+            model_config['bayes_iterations'] = st.slider(
+                "Optimization Iterations",
+                min_value=5,
+                max_value=50,
+                value=10,
+                step=5,
+                help="Number of iterations for Bayesian optimization"
+            )
+        with col2:
+            model_config['bayes_epochs'] = st.slider(
+                "Epochs Per Iteration",
+                min_value=5,
+                max_value=50,
+                value=10,
+                step=5,
+                help="Number of epochs to train for each optimization iteration"
+            )
+
     if model_config['model_type'] == 'WGAN':
         model_config['clip_value'] = st.slider(
             "Clip Value",
@@ -583,24 +611,7 @@ def model_config_section():
             step=0.1,
             help="Gradient penalty coefficient for WGAN"
         )
-        model_config['use_bayesian_opt'] = st.checkbox("Use Bayesian Optimization", value=False)
-        if model_config['use_bayesian_opt']:
-            model_config['bayes_epochs'] = st.slider(
-                "Bayesian Optimization Epochs",
-                min_value=10,
-                max_value=500,
-                value=50,
-                step=10,
-                help="Number of epochs per Bayesian Optimization iteration"
-            )
-            model_config['bayes_iterations'] = st.slider(
-                "Bayesian Optimization Iterations",
-                min_value=1,
-                max_value=50,
-                value=10,
-                step=1,
-                help="Number of iterations for Bayesian Optimization"
-            )
+
 
     return model_config
 

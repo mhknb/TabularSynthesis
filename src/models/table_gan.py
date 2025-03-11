@@ -120,6 +120,124 @@ class TableGAN(BaseGAN):
             # Trim excess samples if needed
             return all_samples[:num_samples]
 
+    def optimize_hyperparameters(self, train_loader, n_epochs=50, n_iterations=10):
+        """
+        Perform Bayesian optimization of hyperparameters
+        
+        Args:
+            train_loader: DataLoader with training data
+            n_epochs: Number of epochs to train for each iteration
+            n_iterations: Number of optimization iterations
+            
+        Returns:
+            best_params: Dictionary of best parameters
+            history_df: DataFrame with optimization history
+        """
+        from src.utils.optimization import BayesianOptimizer
+        import pandas as pd
+        import numpy as np
+        
+        # Define parameter ranges
+        param_ranges = {
+            'lr_d': (0.00001, 0.001),
+            'lr_g': (0.00001, 0.001),
+            'dropout_rate': (0.1, 0.5)
+        }
+        
+        # Define objective function
+        def objective_function(params):
+            try:
+                # Create temporary model with new parameters
+                temp_model = TableGAN(
+                    input_dim=self.input_dim,
+                    hidden_dim=self.hidden_dim,
+                    device=self.device,
+                    min_batch_size=self.min_batch_size
+                )
+                
+                # Update optimizers with new learning rates
+                temp_model.g_optimizer = torch.optim.Adam(
+                    temp_model.generator.parameters(), 
+                    lr=params['lr_g'], 
+                    betas=(0.5, 0.999)
+                )
+                temp_model.d_optimizer = torch.optim.Adam(
+                    temp_model.discriminator.parameters(), 
+                    lr=params['lr_d'], 
+                    betas=(0.5, 0.999)
+                )
+                
+                # Train for a few epochs
+                metrics_history = []
+                for epoch in range(n_epochs):
+                    epoch_metrics = {'epoch': epoch}
+                    epoch_loss_g = 0.0
+                    epoch_loss_d = 0.0
+                    batch_count = 0
+                    
+                    for i, real_data in enumerate(train_loader):
+                        try:
+                            metrics = temp_model.train_step(real_data)
+                            epoch_loss_g += metrics['generator_loss']
+                            epoch_loss_d += metrics['discriminator_loss']
+                            batch_count += 1
+                        except Exception as e:
+                            # Skip problematic batches
+                            continue
+                    
+                    if batch_count > 0:
+                        epoch_metrics['generator_loss'] = epoch_loss_g / batch_count
+                        epoch_metrics['discriminator_loss'] = epoch_loss_d / batch_count
+                        metrics_history.append(epoch_metrics)
+                
+                # Calculate score - negative of average generator loss in last 10% of epochs
+                # Lower generator loss indicates better performance
+                last_n = max(1, int(n_epochs * 0.1))
+                if len(metrics_history) < last_n:
+                    return None  # Not enough data points
+                    
+                last_metrics = metrics_history[-last_n:]
+                avg_gen_loss = np.mean([m['generator_loss'] for m in last_metrics])
+                
+                # Return negative loss as score (since we want to minimize loss)
+                return -avg_gen_loss
+            
+            except Exception as e:
+                import traceback
+                print(f"Error in objective function: {e}")
+                print(traceback.format_exc())
+                return None
+        
+        # Create and run optimizer
+        optimizer = BayesianOptimizer(param_ranges, objective_function, n_iterations=n_iterations)
+        
+        # Define callback for Streamlit progress
+        def callback(i, params, score):
+            import streamlit as st
+            if 'optimization_progress' not in st.session_state:
+                st.session_state.optimization_progress = []
+            st.session_state.optimization_progress.append({
+                'iteration': i+1, 
+                'params': params,
+                'score': score
+            })
+        
+        best_params, _, history_df = optimizer.optimize(callback=callback)
+        
+        # Update model with best parameters
+        self.g_optimizer = torch.optim.Adam(
+            self.generator.parameters(), 
+            lr=best_params['lr_g'], 
+            betas=(0.5, 0.999)
+        )
+        self.d_optimizer = torch.optim.Adam(
+            self.discriminator.parameters(), 
+            lr=best_params['lr_d'], 
+            betas=(0.5, 0.999)
+        )
+        
+        return best_params, history_df
+        
     def state_dict(self):
         """Get state dict for model persistence"""
         return {
