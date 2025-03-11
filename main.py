@@ -519,7 +519,7 @@ def model_config_section():
     model_config['epochs'] = st.slider(
         "Number of Epochs",
         min_value=10,
-        max_value=500,
+        max_value=5000,
         value=100,
         step=10,
         help="Number of training epochs"
