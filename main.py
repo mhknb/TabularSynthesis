@@ -277,7 +277,8 @@ def main():
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim'],
                                 epochs=model_config['epochs'],
-                                batch_size=model_config['batch_size']
+                                batch_size=model_config['batch_size'],
+                                model_type=model_config['model_type']  # Pass model type for WandB
                             )
 
                             # Generate samples using Modal
