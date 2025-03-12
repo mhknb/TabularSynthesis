@@ -11,7 +11,7 @@ import time
 app = modal.App(
     "synthetic-data-generator",
     secrets=[
-        modal.Secret.from_name("wandb-secret")  # Only use WandB secret
+        modal.Secret.from_name("wandb-secret")  # Use wandb-secret for WandB API key
     ]
 )
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
@@ -25,12 +25,15 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
-    # Initialize wandb with environment variables
+    # Initialize wandb with environment variables from Modal secret
     try:
-        os.environ["WANDB_ENTITY"] = "smilai"  # Your wandb username/organization
-        os.environ["WANDB_PROJECT"] = "synthetic-data-generator"
+        # Get WANDB_API_KEY from Modal secret
+        api_key = os.environ.get("WANDB_API_KEY")
+        if not api_key:
+            raise ValueError("WANDB_API_KEY not found in environment")
 
-        wandb.init(
+        wandb.login(key=api_key)
+        run = wandb.init(
             project="synthetic-data-generator",
             name=f"{model_type}-run-{int(time.time())}",
             config={
@@ -45,6 +48,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         print("Successfully initialized WandB")
     except Exception as e:
         print(f"Warning: WandB initialization failed: {str(e)}")
+        print("Continuing without WandB logging...")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2, use_wandb=True)
@@ -86,12 +90,12 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
                     if batch_idx % 10 == 0:
                         print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                        # Log batch metrics to wandb
-                        wandb.log({
-                            "batch": batch_idx,
-                            "epoch": epoch,
-                            **loss_dict
-                        }, step=total_steps)
+                        if wandb.run is not None:
+                            wandb.log({
+                                "batch": batch_idx,
+                                "epoch": epoch,
+                                **loss_dict
+                            }, step=total_steps)
 
                 except ValueError as e:
                     print(f"Warning: Skipping batch due to size issue: {str(e)}")
@@ -113,11 +117,12 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             scheduler.step(current_loss)
 
             # Log epoch metrics to wandb
-            wandb.log({
-                "epoch": epoch,
-                "average_loss": current_loss,
-                **avg_losses
-            })
+            if wandb.run is not None:
+                wandb.log({
+                    "epoch": epoch,
+                    "average_loss": current_loss,
+                    **avg_losses
+                })
 
             if current_loss < best_loss:
                 best_loss = current_loss
@@ -136,13 +141,15 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
     except Exception as e:
         print(f"Training error: {str(e)}")
-        wandb.finish()
+        if wandb.run is not None:
+            wandb.finish()
         raise e
 
     # Finish WandB run
     try:
-        wandb.finish()
-        print("Successfully finished WandB logging")
+        if wandb.run is not None:
+            wandb.finish()
+            print("Successfully finished WandB logging")
     except Exception as e:
         print(f"Warning: Error finishing WandB run: {str(e)}")
 
