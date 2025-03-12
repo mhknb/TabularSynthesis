@@ -7,7 +7,7 @@ import wandb
 import time
 
 # Define app and shared resources at module level
-app = modal.App()  # Simplified app definition, matching example
+app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
@@ -21,15 +21,15 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
     # Initialize wandb first, following the example pattern
-    wandb.init(project="synthetic-data-generator")
-    wandb.config.update({
+    wandb.init(project="sd1")
+    wandb.config = {
         "model_type": model_type,
         "input_dim": input_dim,
         "hidden_dim": hidden_dim,
         "epochs": epochs,
         "batch_size": batch_size,
         "environment": "modal-cloud"
-    })
+    }
 
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -58,12 +58,11 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             epoch_losses = []
             for batch_idx, batch in enumerate(train_loader):
                 try:
-                    # Train step and get metrics
                     metrics = gan.train_step(batch)
                     epoch_losses.append(metrics)
                     total_steps += 1
 
-                    # Log batch metrics
+                    # Log metrics every few batches
                     if batch_idx % 10 == 0:
                         print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
                         wandb.log(metrics)
@@ -87,7 +86,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 **avg_losses
             })
 
-            # Model checkpoint saving
+            # Save best model
             if current_loss < best_loss:
                 best_loss = current_loss
                 patience_counter = 0
@@ -104,6 +103,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
     except Exception as e:
         print(f"Training error: {str(e)}")
+        wandb.finish()
         raise e
 
     finally:

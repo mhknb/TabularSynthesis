@@ -16,7 +16,7 @@ class TableGAN(BaseGAN):
         self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
 
     def build_generator(self) -> nn.Module:
-        """Build generator network with improved architecture and batch handling"""
+        """Build generator network"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim, momentum=0.01),
@@ -39,7 +39,7 @@ class TableGAN(BaseGAN):
         )
 
     def build_discriminator(self) -> nn.Module:
-        """Build discriminator network with improved architecture"""
+        """Build discriminator network"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.LeakyReLU(0.2),
@@ -62,8 +62,7 @@ class TableGAN(BaseGAN):
         return batch.size(0) >= self.min_batch_size
 
     def train_step(self, real_data: torch.Tensor) -> dict:
-        """Perform one training step with batch size validation"""
-        # Validate batch size
+        """Perform one training step"""
         if not self.validate_batch(real_data):
             raise ValueError(f"Batch size {real_data.size(0)} is too small. Minimum required: {self.min_batch_size}")
 

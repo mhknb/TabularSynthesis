@@ -8,7 +8,7 @@ deploymentTarget = "autoscale"
 run = ["sh", "-c", "streamlit run main.py"]
 
 [workflows]
-runButton = "Streamlit App"
+runButton = "Project"
 
 [[workflows.workflow]]
 name = "Project"
@@ -18,6 +18,10 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Streamlit App"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Test WandB"
 
 [[workflows.workflow]]
 name = "Streamlit App"
@@ -33,6 +37,20 @@ task = "packager.installForAll"
 task = "shell.exec"
 args = "streamlit run main.py"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Test WandB"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python test_wandb_modal.py"
 
 [[ports]]
 localPort = 5000
