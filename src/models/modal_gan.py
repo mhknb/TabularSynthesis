@@ -7,11 +7,7 @@ import wandb
 import time
 
 # Define app and shared resources at module level
-app = modal.App(
-    "synthetic-data-generator",
-    secrets=[modal.Secret.from_name("wandb-secret")]  # Simplified secret configuration
-)
-
+app = modal.App()  # Simplified app definition, matching example
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
@@ -19,27 +15,25 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    timeout=1800  # 30 minutes
+    secrets=[modal.Secret.from_name("wandb-secret")],
+    timeout=1800
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
-    try:
-        # Initialize wandb with simpler configuration
-        wandb.init(
-            project="synthetic-data-generator",
-            name=f"{model_type}-run-{int(time.time())}",
-            config={
-                "model_type": model_type,
-                "input_dim": input_dim,
-                "hidden_dim": hidden_dim,
-                "epochs": epochs,
-                "batch_size": batch_size,
-                "environment": "modal-cloud"
-            }
-        )
+    # Initialize wandb first, following the example pattern
+    wandb.init(project="synthetic-data-generator")
+    wandb.config.update({
+        "model_type": model_type,
+        "input_dim": input_dim,
+        "hidden_dim": hidden_dim,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "environment": "modal-cloud"
+    })
 
+    try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2, use_wandb=True)
+        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
 
         # Convert data to tensor and optimize batch size
         train_data = torch.FloatTensor(data.values)
@@ -64,17 +58,15 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
             epoch_losses = []
             for batch_idx, batch in enumerate(train_loader):
                 try:
-                    loss_dict = gan.train_step(batch, current_step=total_steps)
-                    epoch_losses.append(loss_dict)
+                    # Train step and get metrics
+                    metrics = gan.train_step(batch)
+                    epoch_losses.append(metrics)
                     total_steps += 1
 
+                    # Log batch metrics
                     if batch_idx % 10 == 0:
                         print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                        wandb.log({
-                            "batch": batch_idx,
-                            "epoch": epoch,
-                            **loss_dict
-                        }, step=total_steps)
+                        wandb.log(metrics)
 
                 except Exception as e:
                     print(f"Error in batch processing: {str(e)}")
@@ -84,7 +76,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 print("No valid batches in epoch, stopping training")
                 break
 
-            # Calculate and log metrics
+            # Calculate and log epoch metrics
             avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
                          for k in epoch_losses[0].keys()}
             current_loss = sum(avg_losses.values())
@@ -95,7 +87,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 **avg_losses
             })
 
-            # Save best model
+            # Model checkpoint saving
             if current_loss < best_loss:
                 best_loss = current_loss
                 patience_counter = 0

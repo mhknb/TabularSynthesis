@@ -1,16 +1,14 @@
 import torch
 import torch.nn as nn
 from src.models.base_gan import BaseGAN
-import wandb
 
 class TableGAN(BaseGAN):
     """TableGAN implementation for tabular data"""
 
-    def __init__(self, input_dim: int, hidden_dim: int = 256, device: str = 'cpu', min_batch_size: int = 2, use_wandb: bool = False):
+    def __init__(self, input_dim: int, hidden_dim: int = 256, device: str = 'cpu', min_batch_size: int = 2):
         super().__init__(input_dim, device)
         self.hidden_dim = hidden_dim
         self.min_batch_size = min_batch_size
-        self.use_wandb = use_wandb
         self.generator = self.build_generator().to(device)
         self.discriminator = self.build_discriminator().to(device)
 
@@ -21,7 +19,7 @@ class TableGAN(BaseGAN):
         """Build generator network with improved architecture and batch handling"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
-            nn.BatchNorm1d(self.hidden_dim, momentum=0.01),  # Reduced momentum for better small batch handling
+            nn.BatchNorm1d(self.hidden_dim, momentum=0.01),
             nn.LeakyReLU(0.2),
 
             nn.Linear(self.hidden_dim, self.hidden_dim * 2),
@@ -63,7 +61,7 @@ class TableGAN(BaseGAN):
         """Validate batch size is sufficient for training"""
         return batch.size(0) >= self.min_batch_size
 
-    def train_step(self, real_data: torch.Tensor, current_step: int = 0) -> dict:
+    def train_step(self, real_data: torch.Tensor) -> dict:
         """Perform one training step with batch size validation"""
         # Validate batch size
         if not self.validate_batch(real_data):
@@ -97,8 +95,8 @@ class TableGAN(BaseGAN):
         g_loss.backward()
         self.g_optimizer.step()
 
-        # Metrics to return
-        metrics = {
+        # Return metrics
+        return {
             'discriminator_loss': d_loss.item(),
             'generator_loss': g_loss.item(),
             'd_real_loss': d_loss_real.item(),
@@ -107,19 +105,9 @@ class TableGAN(BaseGAN):
             'd_fake_mean': output_fake.mean().item()
         }
 
-        # Log to wandb if enabled
-        if self.use_wandb:
-            try:
-                wandb.log(metrics, step=current_step)
-            except Exception as e:
-                print(f"Error logging to wandb: {e}")
-
-        return metrics
-
     def generate_samples(self, num_samples: int) -> torch.Tensor:
         """Generate synthetic samples"""
         with torch.no_grad():
-            # Generate in batches to avoid memory issues
             batch_size = min(self.min_batch_size * 4, num_samples)
             num_batches = (num_samples + batch_size - 1) // batch_size
             samples_list = []
@@ -133,7 +121,6 @@ class TableGAN(BaseGAN):
                 samples_list.append(samples)
 
             all_samples = torch.cat(samples_list, dim=0)
-            # Trim excess samples if needed
             return all_samples[:num_samples]
 
     def state_dict(self):
@@ -146,8 +133,7 @@ class TableGAN(BaseGAN):
             'input_dim': self.input_dim,
             'hidden_dim': self.hidden_dim,
             'device': self.device,
-            'min_batch_size': self.min_batch_size,
-            'use_wandb': self.use_wandb
+            'min_batch_size': self.min_batch_size
         }
 
     def load_state_dict(self, state_dict):
@@ -160,7 +146,6 @@ class TableGAN(BaseGAN):
         self.hidden_dim = state_dict['hidden_dim']
         self.device = state_dict['device']
         self.min_batch_size = state_dict.get('min_batch_size', 2)  # Default for backward compatibility
-        self.use_wandb = state_dict.get('use_wandb', False)
 
     def optimize_hyperparameters(self, train_loader, n_epochs=50, n_iterations=10):
         """
@@ -279,29 +264,3 @@ class TableGAN(BaseGAN):
         )
 
         return best_params, history_df
-
-    def state_dict(self):
-        """Get state dict for model persistence"""
-        return {
-            'generator_state': self.generator.state_dict(),
-            'discriminator_state': self.discriminator.state_dict(),
-            'g_optimizer_state': self.g_optimizer.state_dict(),
-            'd_optimizer_state': self.d_optimizer.state_dict(),
-            'input_dim': self.input_dim,
-            'hidden_dim': self.hidden_dim,
-            'device': self.device,
-            'min_batch_size': self.min_batch_size,
-            'use_wandb': self.use_wandb
-        }
-
-    def load_state_dict(self, state_dict):
-        """Load state dict for model persistence"""
-        self.generator.load_state_dict(state_dict['generator_state'])
-        self.discriminator.load_state_dict(state_dict['discriminator_state'])
-        self.g_optimizer.load_state_dict(state_dict['g_optimizer_state'])
-        self.d_optimizer.load_state_dict(state_dict['d_optimizer_state'])
-        self.input_dim = state_dict['input_dim']
-        self.hidden_dim = state_dict['hidden_dim']
-        self.device = state_dict['device']
-        self.min_batch_size = state_dict.get('min_batch_size', 2)  # Default for backward compatibility
-        self.use_wandb = state_dict.get('use_wandb', False)
