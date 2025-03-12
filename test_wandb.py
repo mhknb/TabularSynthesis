@@ -69,3 +69,61 @@ except Exception as e:
     print(f"Error testing wandb: {e}")
     import traceback
     traceback.print_exc()
+import os
+import wandb
+import time
+import torch
+import numpy as np
+
+# Configure wandb with your credentials
+os.environ["WANDB_ENTITY"] = "smilai"
+os.environ["WANDB_PROJECT"] = "sd1"
+os.environ["WANDB_API_KEY"] = "74b2d1e3cfbeefbf3732f36430b2508f51bb0c34"
+
+print(f"Testing WandB connection...")
+
+try:
+    # Login to wandb
+    wandb.login(key=os.environ["WANDB_API_KEY"])
+    print(f"Successfully logged into WandB as: {wandb.api.viewer().get('entity', 'unknown')}")
+    
+    # Initialize a test run
+    run = wandb.init(
+        project="sd1",
+        entity="smilai",
+        name=f"test-wandb-{int(time.time())}",
+        config={
+            "test_param": 1.0,
+            "learning_rate": 0.001,
+            "architecture": "test",
+            "dataset": "synthetic",
+            "epochs": 10,
+        }
+    )
+    
+    # Log some dummy metrics
+    for i in range(10):
+        wandb.log({
+            "loss": 1.0 - 0.1 * i,
+            "accuracy": 0.5 + 0.05 * i,
+            "step": i
+        })
+        time.sleep(0.2)  # Small delay to simulate training
+    
+    # Create a simple chart
+    data = [[x, np.sin(x)] for x in np.arange(0, 10, 0.1)]
+    table = wandb.Table(data=data, columns=["x", "sin(x)"])
+    wandb.log({"sin_curve": wandb.plot.line(table, "x", "sin(x)",
+               title="Sine Curve Test")})
+    
+    # Finish the run
+    wandb.finish()
+    
+    print(f"WandB test completed successfully!")
+    if hasattr(run, 'get_url'):
+        print(f"Run URL: {run.get_url()}")
+    
+except Exception as e:
+    print(f"Error testing wandb: {e}")
+    import traceback
+    traceback.print_exc()

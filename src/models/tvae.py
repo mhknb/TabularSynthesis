@@ -6,10 +6,11 @@ from src.models.base_gan import BaseGAN
 class TVAE(BaseGAN):
     """Tabular Variational Autoencoder implementation"""
     
-    def __init__(self, input_dim: int, hidden_dim: int = 256, latent_dim: int = 128, device: str = 'cpu'):
+    def __init__(self, input_dim: int, hidden_dim: int = 256, latent_dim: int = 128, device: str = 'cpu', use_wandb: bool = False):
         super().__init__(input_dim, device)
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
+        self.use_wandb = use_wandb
         
         # Encoder and Decoder replace Generator and Discriminator
         self.encoder = self.build_encoder().to(device)
@@ -23,6 +24,42 @@ class TVAE(BaseGAN):
             list(self.encoder.parameters()) + list(self.decoder.parameters()),
             lr=0.001
         )
+        
+        # Initialized flag to track if wandb has been initialized
+        self.wandb_initialized = False
+
+        if self.use_wandb:
+            try:
+                import wandb
+                import os
+                import time
+                
+                # Check if wandb is already initialized 
+                if wandb.run is None:
+                    # Ensure environment variables are set
+                    if not os.environ.get("WANDB_ENTITY"):
+                        os.environ["WANDB_ENTITY"] = "smilai"
+                    if not os.environ.get("WANDB_PROJECT"):
+                        os.environ["WANDB_PROJECT"] = "sd1"
+                    
+                    wandb.init(
+                        project="sd1", 
+                        name=f"tvae-run-{int(time.time())}", 
+                        entity="smilai",
+                        config={
+                            "hidden_dim": self.hidden_dim,
+                            "latent_dim": self.latent_dim,
+                            "input_dim": self.input_dim,
+                        }
+                    )
+                    self.wandb_initialized = True
+                    print(f"Wandb initialized successfully with entity: smilai, project: sd1")
+                else:
+                    self.wandb_initialized = True
+                    print(f"Using existing wandb run: {wandb.run.name}")
+            except Exception as e:
+                print(f"Error initializing wandb: {e}")
+                self.use_wandb = False
         
     def build_encoder(self) -> nn.Module:
         """Build encoder network (replaces generator in base class)"""
@@ -77,7 +114,7 @@ class TVAE(BaseGAN):
         eps = torch.randn_like(std)
         return mu + eps * std
         
-    def train_step(self, real_data: torch.Tensor) -> dict:
+    def train_step(self, real_data: torch.Tensor, current_step: int = 0) -> dict:
         """Perform one training step"""
         self.optimizer.zero_grad()
         
@@ -105,10 +142,28 @@ class TVAE(BaseGAN):
         loss.backward()
         self.optimizer.step()
         
+        # Calculate per sample losses for consistent reporting
+        total_loss_per_sample = loss.item() / len(real_data)
+        recon_loss_per_sample = recon_loss.item() / len(real_data)
+        kl_loss_per_sample = kl_loss.item() / len(real_data)
+        
+        # Log to wandb if enabled and initialized
+        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
+            try:
+                wandb.log({
+                    "Total Loss": total_loss_per_sample,
+                    "Reconstruction Loss": recon_loss_per_sample,
+                    "KL Divergence Loss": kl_loss_per_sample,
+                    "Learning Rate": self.optimizer.param_groups[0]['lr'],
+                    "Step": current_step
+                })
+            except Exception as e:
+                print(f"Error logging to wandb: {e}")
+        
         return {
-            'total_loss': loss.item() / len(real_data),
-            'reconstruction_loss': recon_loss.item() / len(real_data),
-            'kl_loss': kl_loss.item() / len(real_data)
+            'total_loss': total_loss_per_sample,
+            'reconstruction_loss': recon_loss_per_sample,
+            'kl_loss': kl_loss_per_sample
         }
         
     def generate_samples(self, num_samples: int) -> torch.Tensor:
@@ -273,7 +328,8 @@ class TVAE(BaseGAN):
             'input_dim': self.input_dim,
             'hidden_dim': self.hidden_dim,
             'latent_dim': self.latent_dim,
-            'device': self.device
+            'device': self.device,
+            'use_wandb': self.use_wandb
         }
     
     def load_state_dict(self, state_dict):
@@ -285,3 +341,18 @@ class TVAE(BaseGAN):
         self.hidden_dim = state_dict['hidden_dim']
         self.latent_dim = state_dict['latent_dim']
         self.device = state_dict['device']
+        self.use_wandb = state_dict.get('use_wandb', False)
+    
+    def finish_wandb(self):
+        """Finish the wandb run when training is complete"""
+        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
+            try:
+                import wandb
+                # Only finish if this class initialized wandb
+                if self.wandb_initialized:
+                    wandb.finish()
+                    self.wandb_initialized = False
+                    print("WandB run finished")
+            except Exception as e:
+                print(f"Error finishing wandb run: {e}")
+                self.wandb_initialized = False

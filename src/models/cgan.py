@@ -5,15 +5,52 @@ from src.models.base_gan import BaseGAN
 class CGAN(BaseGAN):
     """Conditional GAN implementation for tabular data"""
 
-    def __init__(self, input_dim: int, condition_dim: int, hidden_dim: int = 256, device: str = 'cpu'):
+    def __init__(self, input_dim: int, condition_dim: int, hidden_dim: int = 256, device: str = 'cpu', use_wandb: bool = False):
         super().__init__(input_dim, device)
         self.hidden_dim = hidden_dim
         self.condition_dim = condition_dim
+        self.use_wandb = use_wandb
         self.generator = self.build_generator().to(device)
         self.discriminator = self.build_discriminator().to(device)
 
         self.g_optimizer = torch.optim.Adam(self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
         self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        
+        # Initialized flag to track if wandb has been initialized
+        self.wandb_initialized = False
+
+        if self.use_wandb:
+            try:
+                import wandb
+                import os
+                import time
+                
+                # Check if wandb is already initialized 
+                if wandb.run is None:
+                    # Ensure environment variables are set
+                    if not os.environ.get("WANDB_ENTITY"):
+                        os.environ["WANDB_ENTITY"] = "smilai"
+                    if not os.environ.get("WANDB_PROJECT"):
+                        os.environ["WANDB_PROJECT"] = "sd1"
+                    
+                    wandb.init(
+                        project="sd1", 
+                        name=f"cgan-run-{int(time.time())}", 
+                        entity="smilai",
+                        config={
+                            "hidden_dim": self.hidden_dim,
+                            "condition_dim": self.condition_dim,
+                            "input_dim": self.input_dim,
+                        }
+                    )
+                    self.wandb_initialized = True
+                    print(f"Wandb initialized successfully with entity: smilai, project: sd1")
+                else:
+                    self.wandb_initialized = True
+                    print(f"Using existing wandb run: {wandb.run.name}")
+            except Exception as e:
+                print(f"Error initializing wandb: {e}")
+                self.use_wandb = False
 
     def build_generator(self) -> nn.Module:
         """Build generator network with condition input"""
@@ -104,7 +141,7 @@ class CGAN(BaseGAN):
 
         return ConditionalDiscriminator(self.input_dim, self.condition_dim, self.hidden_dim)
 
-    def train_step(self, real_data: torch.Tensor) -> dict:
+    def train_step(self, real_data: torch.Tensor, current_step: int = 0) -> dict:
         """Perform one training step with conditions"""
         batch_size = real_data.size(0)
         real_data = real_data.to(self.device)
@@ -138,9 +175,29 @@ class CGAN(BaseGAN):
         g_loss.backward()
         self.g_optimizer.step()
 
+        # Metrics to return
+        d_loss_value = d_loss.item()
+        g_loss_value = g_loss.item()
+        
+        # Log to wandb if enabled and initialized
+        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
+            try:
+                import wandb
+                wandb.log({
+                    "Discriminator Loss": d_loss_value,
+                    "Generator Loss": g_loss_value,
+                    "D Real Loss": d_loss_real.item(),
+                    "D Fake Loss": d_loss_fake.item(),
+                    "Learning Rate Generator": self.g_optimizer.param_groups[0]['lr'],
+                    "Learning Rate Discriminator": self.d_optimizer.param_groups[0]['lr'],
+                    "Step": current_step
+                })
+            except Exception as e:
+                print(f"Error logging to wandb: {e}")
+                
         return {
-            'discriminator_loss': d_loss.item(),
-            'generator_loss': g_loss.item()
+            'discriminator_loss': d_loss_value,
+            'generator_loss': g_loss_value
         }
 
     def generate_samples(self, num_samples: int, conditions=None) -> torch.Tensor:
@@ -330,7 +387,8 @@ class CGAN(BaseGAN):
             'input_dim': self.input_dim,
             'condition_dim': self.condition_dim,
             'hidden_dim': self.hidden_dim,
-            'device': self.device
+            'device': self.device,
+            'use_wandb': self.use_wandb
         }
 
     def load_state_dict(self, state_dict):
@@ -343,3 +401,18 @@ class CGAN(BaseGAN):
         self.condition_dim = state_dict['condition_dim']
         self.hidden_dim = state_dict['hidden_dim']
         self.device = state_dict['device']
+        self.use_wandb = state_dict.get('use_wandb', False)
+        
+    def finish_wandb(self):
+        """Finish the wandb run when training is complete"""
+        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
+            try:
+                import wandb
+                # Only finish if this class initialized wandb
+                if self.wandb_initialized:
+                    wandb.finish()
+                    self.wandb_initialized = False
+                    print("WandB run finished")
+            except Exception as e:
+                print(f"Error finishing wandb run: {e}")
+                self.wandb_initialized = False
