@@ -11,8 +11,7 @@ import time
 app = modal.App(
     "synthetic-data-generator",
     secrets=[
-        modal.Secret.from_name("huggingface"),
-        modal.Secret.from_name("wandb-secret")  # Add WandB secret
+        modal.Secret.from_name("wandb-secret")  # Only use WandB secret
     ]
 )
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
@@ -26,8 +25,11 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
-    # Initialize wandb
+    # Initialize wandb with environment variables
     try:
+        os.environ["WANDB_ENTITY"] = "smilai"  # Your wandb username/organization
+        os.environ["WANDB_PROJECT"] = "synthetic-data-generator"
+
         wandb.init(
             project="synthetic-data-generator",
             name=f"{model_type}-run-{int(time.time())}",
@@ -36,9 +38,11 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 "input_dim": input_dim,
                 "hidden_dim": hidden_dim,
                 "epochs": epochs,
-                "batch_size": batch_size
+                "batch_size": batch_size,
+                "environment": "modal-cloud"
             }
         )
+        print("Successfully initialized WandB")
     except Exception as e:
         print(f"Warning: WandB initialization failed: {str(e)}")
 
@@ -71,54 +75,74 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     )
 
     total_steps = 0
-    for epoch in range(epochs):
-        epoch_losses = []
-        for batch_idx, batch in enumerate(train_loader):
-            try:
-                loss_dict = gan.train_step(batch, current_step=total_steps)
-                epoch_losses.append(loss_dict)
-                total_steps += 1
+    try:
+        for epoch in range(epochs):
+            epoch_losses = []
+            for batch_idx, batch in enumerate(train_loader):
+                try:
+                    loss_dict = gan.train_step(batch, current_step=total_steps)
+                    epoch_losses.append(loss_dict)
+                    total_steps += 1
 
-                if batch_idx % 10 == 0:
-                    print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
+                    if batch_idx % 10 == 0:
+                        print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
+                        # Log batch metrics to wandb
+                        wandb.log({
+                            "batch": batch_idx,
+                            "epoch": epoch,
+                            **loss_dict
+                        }, step=total_steps)
 
-            except ValueError as e:
-                print(f"Warning: Skipping batch due to size issue: {str(e)}")
-                continue
-            except Exception as e:
-                print(f"Error in batch processing: {str(e)}")
-                continue
+                except ValueError as e:
+                    print(f"Warning: Skipping batch due to size issue: {str(e)}")
+                    continue
+                except Exception as e:
+                    print(f"Error in batch processing: {str(e)}")
+                    continue
 
-        if not epoch_losses:
-            print("No valid batches in epoch, stopping training")
-            break
-
-        # Calculate average loss
-        avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
-                     for k in epoch_losses[0].keys()}
-        losses.append(avg_losses)
-
-        current_loss = sum(avg_losses.values())
-        scheduler.step(current_loss)
-
-        if current_loss < best_loss:
-            best_loss = current_loss
-            patience_counter = 0
-            print(f"Epoch {epoch+1}: New best model found")
-            try:
-                torch.save(gan.state_dict(), "/model/table_gan.pt")
-                volume.commit()
-            except Exception as e:
-                print(f"Warning: Failed to save model: {str(e)}")
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"Early stopping triggered at epoch {epoch+1}")
+            if not epoch_losses:
+                print("No valid batches in epoch, stopping training")
                 break
+
+            # Calculate average loss
+            avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
+                         for k in epoch_losses[0].keys()}
+            losses.append(avg_losses)
+
+            current_loss = sum(avg_losses.values())
+            scheduler.step(current_loss)
+
+            # Log epoch metrics to wandb
+            wandb.log({
+                "epoch": epoch,
+                "average_loss": current_loss,
+                **avg_losses
+            })
+
+            if current_loss < best_loss:
+                best_loss = current_loss
+                patience_counter = 0
+                print(f"Epoch {epoch+1}: New best model found")
+                try:
+                    torch.save(gan.state_dict(), "/model/table_gan.pt")
+                    volume.commit()
+                except Exception as e:
+                    print(f"Warning: Failed to save model: {str(e)}")
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Early stopping triggered at epoch {epoch+1}")
+                    break
+
+    except Exception as e:
+        print(f"Training error: {str(e)}")
+        wandb.finish()
+        raise e
 
     # Finish WandB run
     try:
         wandb.finish()
+        print("Successfully finished WandB logging")
     except Exception as e:
         print(f"Warning: Error finishing WandB run: {str(e)}")
 
