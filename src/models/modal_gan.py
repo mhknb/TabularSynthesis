@@ -3,17 +3,15 @@ import torch
 import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
-import os
 import wandb
 import time
 
 # Define app and shared resources at module level
 app = modal.App(
     "synthetic-data-generator",
-    secrets=[
-        modal.Secret.from_name("wandb-secret")  # Use wandb-secret for WandB API key
-    ]
+    secrets=[modal.Secret.from_name("wandb-secret")]  # Simplified secret configuration
 )
+
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
@@ -25,15 +23,9 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
-    # Initialize wandb with environment variables from Modal secret
     try:
-        # Get WANDB_API_KEY from Modal secret
-        api_key = os.environ.get("WANDB_API_KEY")
-        if not api_key:
-            raise ValueError("WANDB_API_KEY not found in environment")
-
-        wandb.login(key=api_key)
-        run = wandb.init(
+        # Initialize wandb with simpler configuration
+        wandb.init(
             project="synthetic-data-generator",
             name=f"{model_type}-run-{int(time.time())}",
             config={
@@ -45,41 +37,29 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 "environment": "modal-cloud"
             }
         )
-        print("Successfully initialized WandB")
-    except Exception as e:
-        print(f"Warning: WandB initialization failed: {str(e)}")
-        print("Continuing without WandB logging...")
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2, use_wandb=True)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2, use_wandb=True)
 
-    # Convert data to tensor and optimize batch size
-    train_data = torch.FloatTensor(data.values)
+        # Convert data to tensor and optimize batch size
+        train_data = torch.FloatTensor(data.values)
+        batch_size = max(gan.min_batch_size, min(batch_size, len(train_data) // 4))
 
-    # Ensure batch size is at least min_batch_size (2) and not larger than dataset
-    batch_size = max(gan.min_batch_size, min(batch_size, len(train_data) // 4))
+        train_loader = torch.utils.data.DataLoader(
+            train_data, 
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,
+            num_workers=2
+        )
 
-    train_loader = torch.utils.data.DataLoader(
-        train_data, 
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,  # Drop last batch if incomplete
-        num_workers=2
-    )
+        # Training metrics
+        best_loss = float('inf')
+        patience = 5
+        patience_counter = 0
+        total_steps = 0
 
-    # Initialize training metrics
-    best_loss = float('inf')
-    patience = 5
-    patience_counter = 0
-    losses = []
-
-    # Training loop with improved batch handling
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        gan.g_optimizer, mode='min', factor=0.5, patience=2, verbose=True
-    )
-
-    total_steps = 0
-    try:
+        # Training loop
         for epoch in range(epochs):
             epoch_losses = []
             for batch_idx, batch in enumerate(train_loader):
@@ -90,16 +70,12 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
                     if batch_idx % 10 == 0:
                         print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                        if wandb.run is not None:
-                            wandb.log({
-                                "batch": batch_idx,
-                                "epoch": epoch,
-                                **loss_dict
-                            }, step=total_steps)
+                        wandb.log({
+                            "batch": batch_idx,
+                            "epoch": epoch,
+                            **loss_dict
+                        }, step=total_steps)
 
-                except ValueError as e:
-                    print(f"Warning: Skipping batch due to size issue: {str(e)}")
-                    continue
                 except Exception as e:
                     print(f"Error in batch processing: {str(e)}")
                     continue
@@ -108,26 +84,21 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 print("No valid batches in epoch, stopping training")
                 break
 
-            # Calculate average loss
+            # Calculate and log metrics
             avg_losses = {k: sum(d[k] for d in epoch_losses) / len(epoch_losses) 
                          for k in epoch_losses[0].keys()}
-            losses.append(avg_losses)
-
             current_loss = sum(avg_losses.values())
-            scheduler.step(current_loss)
 
-            # Log epoch metrics to wandb
-            if wandb.run is not None:
-                wandb.log({
-                    "epoch": epoch,
-                    "average_loss": current_loss,
-                    **avg_losses
-                })
+            wandb.log({
+                "epoch": epoch,
+                "average_loss": current_loss,
+                **avg_losses
+            })
 
+            # Save best model
             if current_loss < best_loss:
                 best_loss = current_loss
                 patience_counter = 0
-                print(f"Epoch {epoch+1}: New best model found")
                 try:
                     torch.save(gan.state_dict(), "/model/table_gan.pt")
                     volume.commit()
@@ -141,19 +112,13 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
     except Exception as e:
         print(f"Training error: {str(e)}")
-        if wandb.run is not None:
-            wandb.finish()
         raise e
 
-    # Finish WandB run
-    try:
-        if wandb.run is not None:
-            wandb.finish()
-            print("Successfully finished WandB logging")
-    except Exception as e:
-        print(f"Warning: Error finishing WandB run: {str(e)}")
+    finally:
+        # Always ensure wandb run is finished
+        wandb.finish()
 
-    return losses
+    return avg_losses if 'avg_losses' in locals() else None
 
 @app.function(
     gpu="T4",
@@ -168,10 +133,6 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
 
     try:
         gan.load_state_dict(torch.load("/model/table_gan.pt"))
-    except Exception as e:
-        raise ValueError(f"Failed to load model: {str(e)}")
-
-    try:
         synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
         return synthetic_data
     except Exception as e:

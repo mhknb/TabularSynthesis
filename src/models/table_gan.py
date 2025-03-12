@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from src.models.base_gan import BaseGAN
+import wandb
 
 class TableGAN(BaseGAN):
     """TableGAN implementation for tabular data"""
@@ -15,42 +16,6 @@ class TableGAN(BaseGAN):
 
         self.g_optimizer = torch.optim.Adam(self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999))
         self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999))
-
-        # Initialized flag to track if wandb has been initialized
-        self.wandb_initialized = False
-
-        if self.use_wandb:
-            try:
-                import wandb
-                import os
-                import time
-
-                # Check if wandb is already initialized 
-                if wandb.run is None:
-                    # Ensure environment variables are set
-                    if not os.environ.get("WANDB_ENTITY"):
-                        os.environ["WANDB_ENTITY"] = "smilai"
-                    if not os.environ.get("WANDB_PROJECT"):
-                        os.environ["WANDB_PROJECT"] = "sd1"
-
-                    wandb.init(
-                        project="sd1", 
-                        name=f"tablegan-run-{int(time.time())}", 
-                        entity="smilai",
-                        config={
-                            "hidden_dim": self.hidden_dim,
-                            "min_batch_size": self.min_batch_size,
-                            "input_dim": self.input_dim,
-                        }
-                    )
-                    self.wandb_initialized = True
-                    print(f"Wandb initialized successfully with entity: smilai, project: sd1")
-                else:
-                    self.wandb_initialized = True
-                    print(f"Using existing wandb run: {wandb.run.name}")
-            except Exception as e:
-                print(f"Error initializing wandb: {e}")
-                self.use_wandb = False
 
     def build_generator(self) -> nn.Module:
         """Build generator network with improved architecture and batch handling"""
@@ -133,31 +98,23 @@ class TableGAN(BaseGAN):
         self.g_optimizer.step()
 
         # Metrics to return
-        d_loss_value = d_loss.item()
-        g_loss_value = g_loss.item()
+        metrics = {
+            'discriminator_loss': d_loss.item(),
+            'generator_loss': g_loss.item(),
+            'd_real_loss': d_loss_real.item(),
+            'd_fake_loss': d_loss_fake.item(),
+            'd_real_mean': output_real.mean().item(),
+            'd_fake_mean': output_fake.mean().item()
+        }
 
-        # Log to wandb if enabled and initialized
-        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
+        # Log to wandb if enabled
+        if self.use_wandb:
             try:
-                import wandb
-                wandb.log({
-                    "Discriminator Loss": d_loss_value,
-                    "Generator Loss": g_loss_value,
-                    "D Real Loss": d_loss_real.item(),
-                    "D Fake Loss": d_loss_fake.item(),
-                    "D Real Mean Output": output_real.mean().item(),
-                    "D Fake Mean Output": output_fake.mean().item(),
-                    "Learning Rate Generator": self.g_optimizer.param_groups[0]['lr'],
-                    "Learning Rate Discriminator": self.d_optimizer.param_groups[0]['lr'],
-                    "Step": current_step
-                })
+                wandb.log(metrics, step=current_step)
             except Exception as e:
                 print(f"Error logging to wandb: {e}")
 
-        return {
-            'discriminator_loss': d_loss_value,
-            'generator_loss': g_loss_value
-        }
+        return metrics
 
     def generate_samples(self, num_samples: int) -> torch.Tensor:
         """Generate synthetic samples"""
@@ -178,6 +135,32 @@ class TableGAN(BaseGAN):
             all_samples = torch.cat(samples_list, dim=0)
             # Trim excess samples if needed
             return all_samples[:num_samples]
+
+    def state_dict(self):
+        """Get state dict for model persistence"""
+        return {
+            'generator_state': self.generator.state_dict(),
+            'discriminator_state': self.discriminator.state_dict(),
+            'g_optimizer_state': self.g_optimizer.state_dict(),
+            'd_optimizer_state': self.d_optimizer.state_dict(),
+            'input_dim': self.input_dim,
+            'hidden_dim': self.hidden_dim,
+            'device': self.device,
+            'min_batch_size': self.min_batch_size,
+            'use_wandb': self.use_wandb
+        }
+
+    def load_state_dict(self, state_dict):
+        """Load state dict for model persistence"""
+        self.generator.load_state_dict(state_dict['generator_state'])
+        self.discriminator.load_state_dict(state_dict['discriminator_state'])
+        self.g_optimizer.load_state_dict(state_dict['g_optimizer_state'])
+        self.d_optimizer.load_state_dict(state_dict['d_optimizer_state'])
+        self.input_dim = state_dict['input_dim']
+        self.hidden_dim = state_dict['hidden_dim']
+        self.device = state_dict['device']
+        self.min_batch_size = state_dict.get('min_batch_size', 2)  # Default for backward compatibility
+        self.use_wandb = state_dict.get('use_wandb', False)
 
     def optimize_hyperparameters(self, train_loader, n_epochs=50, n_iterations=10):
         """
@@ -322,17 +305,3 @@ class TableGAN(BaseGAN):
         self.device = state_dict['device']
         self.min_batch_size = state_dict.get('min_batch_size', 2)  # Default for backward compatibility
         self.use_wandb = state_dict.get('use_wandb', False)
-
-    def finish_wandb(self):
-        """Finish the wandb run when training is complete"""
-        if self.use_wandb and (self.wandb_initialized or wandb.run is not None):
-            try:
-                import wandb
-                # Only finish if this class initialized wandb
-                if self.wandb_initialized:
-                    wandb.finish()
-                    self.wandb_initialized = False
-                    print("WandB run finished")
-            except Exception as e:
-                print(f"Error finishing wandb run: {e}")
-                self.wandb_initialized = False
