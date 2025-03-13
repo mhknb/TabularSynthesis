@@ -98,6 +98,10 @@ class WGAN(BaseGAN):
             # Backward and optimize
             disc_loss.backward()
             self.d_optimizer.step()
+            
+            # Apply weight clipping to discriminator parameters
+            for p in self.discriminator.parameters():
+                p.data.clamp_(-self.clip_value, self.clip_value)
 
         # Calculate average discriminator loss
         avg_disc_loss = total_disc_loss / self.n_critic
