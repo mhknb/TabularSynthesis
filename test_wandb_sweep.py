@@ -4,6 +4,8 @@ import time
 import torch
 import numpy as np
 from src.models.tvae import TVAE
+import wandb
+import matplotlib.pyplot as plt
 
 # Create Modal app
 app = modal.App()
@@ -13,14 +15,19 @@ def train_model(config=None):
     import wandb
 
     # Initialize a new wandb run
-    with wandb.init(config=config):
+    with wandb.init(project="sd1", name=f"tvae-sweep-{int(time.time())}", config=config) as run:
         config = wandb.config
-        wandb.log({"Start": "Training started"}) #Added verbose logging
+        print(f"Starting training run {run.id} with config:", config)
 
         # Create a small synthetic dataset for testing
         input_dim = 10
         n_samples = 1000
         test_data = torch.randn(n_samples, input_dim)
+
+        # Split data for evaluation
+        train_size = int(0.8 * len(test_data))
+        train_data = test_data[:train_size]
+        val_data = test_data[train_size:]
 
         # Initialize model with config parameters
         model = TVAE(
@@ -30,42 +37,81 @@ def train_model(config=None):
             device='cpu'
         )
 
-        # Create optimizer with config learning rate
-        optimizer = torch.optim.Adam(
-            list(model.encoder.parameters()) + list(model.decoder.parameters()),
-            lr=config.learning_rate
-        )
-
         # Training loop
         for epoch in range(config.epochs):
-            total_loss = 0
-            batches = torch.split(test_data, config.batch_size)
+            epoch_metrics = {'epoch': epoch}
+            batches = torch.split(train_data, config.batch_size)
 
+            # Training metrics
+            train_loss = 0
             for batch in batches:
                 metrics = model.train_step(batch)
-                total_loss += metrics['total_loss']
+                train_loss += metrics['total_loss']
 
-                # Log metrics to wandb
-                wandb.log({
+            avg_train_loss = train_loss / len(batches)
+
+            # Validation and generation of synthetic data
+            with torch.no_grad():
+                # Generate synthetic samples
+                synthetic_data = model.generate_samples(len(val_data))
+
+                # Calculate validation loss
+                val_metrics = model.train_step(val_data)
+                val_loss = val_metrics['total_loss']
+
+                # Calculate statistical similarity
+                real_mean = val_data.mean(dim=0)
+                real_std = val_data.std(dim=0)
+                synth_mean = synthetic_data.mean(dim=0)
+                synth_std = synthetic_data.std(dim=0)
+
+                mean_diff = torch.mean(torch.abs(real_mean - synth_mean))
+                std_diff = torch.mean(torch.abs(real_std - synth_std))
+
+                # Create distribution plots
+                fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+                # Real data distribution
+                axes[0].hist(val_data[:, 0].numpy(), bins=30, alpha=0.5, label='Real')
+                axes[0].set_title('Real Data Distribution')
+                axes[0].legend()
+
+                # Synthetic data distribution
+                axes[1].hist(synthetic_data[:, 0].numpy(), bins=30, alpha=0.5, label='Synthetic')
+                axes[1].set_title('Synthetic Data Distribution')
+                axes[1].legend()
+
+                # Log metrics and plots to wandb
+                metrics_dict = {
+                    'train/loss': avg_train_loss,
+                    'val/loss': val_loss,
+                    'evaluation/mean_difference': mean_diff.item(),
+                    'evaluation/std_difference': std_diff.item(),
                     'epoch': epoch,
-                    'batch_loss': metrics['total_loss'],
-                    'reconstruction_loss': metrics['reconstruction_loss'],
-                    'kl_loss': metrics['kl_loss']
+                    'distributions': wandb.Image(fig),
+                }
+
+                # Add hyperparameters for tracking
+                metrics_dict.update({
+                    'hyperparameters/learning_rate': config.learning_rate,
+                    'hyperparameters/latent_dim': config.latent_dim,
+                    'hyperparameters/hidden_dim': config.hidden_dim,
+                    'hyperparameters/batch_size': config.batch_size,
                 })
 
-            # Log epoch metrics
-            avg_loss = total_loss / len(batches)
-            wandb.log({
-                'epoch': epoch,
-                'average_loss': avg_loss
-            })
-        wandb.log({"End": "Training ended"}) #Added verbose logging
+                wandb.log(metrics_dict)
+                plt.close(fig)
+
+            print(f"Epoch {epoch}: train_loss={avg_train_loss:.4f}, val_loss={val_loss:.4f}")
+
+        print(f"Training completed. Final validation loss: {val_loss:.4f}")
+        return val_loss  # Return validation loss for sweep optimization
 
 @app.function(
     image=modal.Image.debian_slim()
-        .pip_install(["wandb", "torch", "numpy"])
+        .pip_install(["wandb", "torch", "numpy", "matplotlib"])
         .add_local_dir("src", "/root/src")
-        .add_local_python_source("sitecustomize", "src"),  # Add Python modules as suggested
+        .add_local_python_source("sitecustomize", "src"),
     secrets=[modal.Secret.from_name("wandb-secret")],
 )
 def run_sweep():
@@ -77,7 +123,7 @@ def run_sweep():
         'method': 'bayes',
         'name': 'tvae_optimization',
         'metric': {
-            'name': 'average_loss',
+            'name': 'val/loss',
             'goal': 'minimize'
         },
         'parameters': {

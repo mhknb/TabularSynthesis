@@ -139,6 +139,8 @@ class TVAE(BaseGAN):
         from src.utils.optimization import BayesianOptimizer
         import pandas as pd
         import numpy as np
+        import wandb
+        import matplotlib.pyplot as plt
 
         # Define parameter ranges
         param_ranges = {
@@ -210,15 +212,71 @@ class TVAE(BaseGAN):
                                 'kl_loss': kl_loss.item() / len(real_data)
                             }
 
+                            # Log metrics to wandb
+                            if wandb.run is not None:
+                                wandb.log({
+                                    'batch_loss': metrics['total_loss'],
+                                    'reconstruction_loss': metrics['reconstruction_loss'],
+                                    'kl_divergence': metrics['kl_loss'],
+                                    'epoch': epoch,
+                                    'batch': i,
+                                })
+
                             epoch_loss += metrics['total_loss']
                             batch_count += 1
+
+                            # Generate and log synthetic data evaluation every few batches
+                            if i % 10 == 0:
+                                with torch.no_grad():
+                                    # Generate synthetic samples
+                                    synthetic_data = temp_model.generate_samples(len(real_data))
+
+                                    # Calculate statistical similarity
+                                    real_mean = real_data.mean(dim=0)
+                                    real_std = real_data.std(dim=0)
+                                    synth_mean = synthetic_data.mean(dim=0)
+                                    synth_std = synthetic_data.std(dim=0)
+
+                                    mean_diff = torch.mean(torch.abs(real_mean - synth_mean))
+                                    std_diff = torch.mean(torch.abs(real_std - synth_std))
+
+                                    if wandb.run is not None:
+                                        # Create distribution plots
+                                        fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+
+                                        # Real data distribution
+                                        axes[0].hist(real_data[:, 0].cpu().numpy(), bins=30, alpha=0.5, label='Real')
+                                        axes[0].set_title('Real Data Distribution')
+
+                                        # Synthetic data distribution
+                                        axes[1].hist(synthetic_data[:, 0].cpu().numpy(), bins=30, alpha=0.5, label='Synthetic')
+                                        axes[1].set_title('Synthetic Data Distribution')
+
+                                        # Log evaluation metrics and plot
+                                        wandb.log({
+                                            'mean_difference': mean_diff.item(),
+                                            'std_difference': std_diff.item(),
+                                            'distribution_plot': wandb.Image(fig),
+                                            'epoch': epoch,
+                                            'batch': i,
+                                        })
+
+                                        plt.close(fig)
+
                         except Exception as e:
                             # Skip problematic batches
+                            print(f"Error in batch: {str(e)}")
                             continue
 
                     if batch_count > 0:
                         epoch_metrics['total_loss'] = epoch_loss / batch_count
                         metrics_history.append(epoch_metrics)
+
+                        if wandb.run is not None:
+                            wandb.log({
+                                'epoch_loss': epoch_metrics['total_loss'],
+                                'epoch': epoch,
+                            })
 
                 # Calculate score - negative of average total loss in last 10% of epochs
                 last_n = max(1, int(n_epochs * 0.1))
@@ -240,16 +298,28 @@ class TVAE(BaseGAN):
         # Create and run optimizer
         optimizer = BayesianOptimizer(param_ranges, objective_function, n_iterations=n_iterations)
 
-        # Define callback for Streamlit progress
+        # Define callback for Streamlit progress and WandB logging
         def callback(i, params, score):
             import streamlit as st
             if 'optimization_progress' not in st.session_state:
                 st.session_state.optimization_progress = []
-            st.session_state.optimization_progress.append({
+
+            progress_info = {
                 'iteration': i+1,
                 'params': params,
                 'score': score
-            })
+            }
+            st.session_state.optimization_progress.append(progress_info)
+
+            # Log optimization progress to WandB
+            if wandb.run is not None:
+                wandb.log({
+                    'optimization_iteration': i+1,
+                    'optimization_score': -score if score is not None else None,  # Convert back to loss
+                    'learning_rate': params['learning_rate'],
+                    'kl_weight': params['kl_weight'],
+                    'latent_dim': params['latent_dim'],
+                })
 
         best_params, _, history_df = optimizer.optimize(callback=callback)
 
