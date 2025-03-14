@@ -10,8 +10,13 @@ from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import seaborn as sns
 
-from sdmetrics.reports.single_table import QualityReport
-from sdmetrics.visualization import get_column_pair_plot
+try:
+    from sdmetrics.reports.single_table import QualityReport
+    from sdmetrics.visualization import get_column_pair_plot
+except ImportError:
+    print("Warning: SDMetrics not properly installed. Quality metrics will be disabled.")
+    QualityReport = None
+    get_column_pair_plot = None
 import matplotlib.pyplot as plt
 
 class DataEvaluator:
