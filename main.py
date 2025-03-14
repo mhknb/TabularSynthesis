@@ -528,9 +528,16 @@ def main():
                 # Evaluate synthetic data
                 st.subheader("Data Quality Evaluation")
 
+                # Ensure we're using the correct columns for evaluation
+                st.write("Columns being evaluated:", selected_columns)
+                st.write("Number of columns:", len(selected_columns))
+
                 # Filter both dataframes to only include selected columns
-                eval_real_df = df[selected_columns]
-                eval_synthetic_df = result_df[selected_columns]
+                eval_real_df = df[selected_columns].copy()
+                eval_synthetic_df = result_df[selected_columns].copy()
+
+                st.write("Real data shape:", eval_real_df.shape)
+                st.write("Synthetic data shape:", eval_synthetic_df.shape)
 
                 evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 

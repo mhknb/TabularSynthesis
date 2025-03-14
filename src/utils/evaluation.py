@@ -249,8 +249,12 @@ class DataEvaluator:
 
     def statistical_similarity(self) -> dict:
         """Calculate statistical similarity metrics"""
+        print("\nDEBUG - Statistical Similarity:")
+        print(f"Available columns: {self.real_data.columns.tolist()}")
+
         metrics = {}
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        print(f"Numerical columns for analysis: {numerical_cols.tolist()}")
 
         for col in numerical_cols:
             # One-way ANOVA test
@@ -261,31 +265,31 @@ class DataEvaluator:
                 )
                 metrics[f'anova_f_statistic_{col}'] = f_statistic
                 metrics[f'anova_pvalue_{col}'] = anova_pvalue
-            except:
-                # Handle cases where ANOVA cannot be calculated
+            except Exception as e:
+                print(f"Error calculating ANOVA for column {col}: {str(e)}")
                 metrics[f'anova_f_statistic_{col}'] = float('nan')
                 metrics[f'anova_pvalue_{col}'] = float('nan')
 
         return metrics
-        
+
     def anova_summary(self) -> pd.DataFrame:
         """Summarize one-way ANOVA results for each numerical column"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         results = []
-        
+
         for col in numerical_cols:
             try:
                 f_statistic, p_value = f_oneway(
                     self.real_data[col],
                     self.synthetic_data[col]
                 )
-                
+
                 # Interpretation
                 if p_value < 0.05:
                     interpretation = "Significant difference"
                 else:
                     interpretation = "No significant difference"
-                    
+
                 results.append({
                     'Column': col,
                     'F_statistic': f_statistic,
@@ -299,9 +303,9 @@ class DataEvaluator:
                     'P_value': float('nan'),
                     'Interpretation': f"Error: {str(e)}"
                 })
-                
+
         return pd.DataFrame(results)
-    
+
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
@@ -361,12 +365,12 @@ class DataEvaluator:
 
         # Add safe division to avoid division by zero
         comparison['mean_diff_pct'] = np.abs(
-            (comparison['real_mean'] - comparison['synthetic_mean']) / 
+            (comparison['real_mean'] - comparison['synthetic_mean']) /
             (comparison['real_mean'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
         comparison['std_diff_pct'] = np.abs(
-            (comparison['real_std'] - comparison['synthetic_std']) / 
+            (comparison['real_std'] - comparison['synthetic_std']) /
             (comparison['real_std'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
@@ -377,7 +381,7 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         if len(numerical_cols) == 0:
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-            ax.text(0.5, 0.5, 'No numerical columns to compare', 
+            ax.text(0.5, 0.5, 'No numerical columns to compare',
                    horizontalalignment='center', verticalalignment='center')
             if save_path:
                 plt.savefig(save_path)
@@ -435,7 +439,7 @@ class DataEvaluator:
             results['divergence_metrics'] = self.calculate_distribution_divergence()
         except Exception as e:
             results['divergence_metrics'] = f"Error: {str(e)}"
-            
+
         try:
             results['anova_summary'] = self.anova_summary()
         except Exception as e:
