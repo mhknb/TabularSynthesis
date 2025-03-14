@@ -526,6 +526,21 @@ def main():
                     for col, values in stats.items():
                         st.write(f"{col}: {values:.4f}")
 
+                # One-way ANOVA test
+                with st.expander("One-way ANOVA Test Results"):
+                    try:
+                        anova_results = evaluator.anova_summary()
+                        st.dataframe(anova_results)
+                        
+                        # Highlight columns with significant differences
+                        significant_cols = anova_results[anova_results['P_value'] < 0.05]['Column'].tolist()
+                        if significant_cols:
+                            st.warning(f"Columns with significant differences (p < 0.05): {', '.join(significant_cols)}")
+                        else:
+                            st.success("No significant differences found between real and synthetic data distributions.")
+                    except Exception as e:
+                        st.error(f"Error calculating ANOVA: {str(e)}")
+
                 # Correlation similarity
                 with st.expander("Correlation Matrix Similarity"):
                     corr_sim = evaluator.correlation_similarity()

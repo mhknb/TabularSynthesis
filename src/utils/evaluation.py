@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.spatial.distance import jensenshannon
-from scipy.stats import wasserstein_distance
+from scipy.stats import wasserstein_distance, f_oneway
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -250,14 +250,62 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
 
         for col in numerical_cols:
-            statistic, pvalue = stats.ks_2samp(
+            # Kolmogorov-Smirnov test
+            ks_statistic, ks_pvalue = stats.ks_2samp(
                 self.real_data[col],
                 self.synthetic_data[col]
             )
-            metrics[f'ks_statistic_{col}'] = statistic
-            metrics[f'ks_pvalue_{col}'] = pvalue
+            metrics[f'ks_statistic_{col}'] = ks_statistic
+            metrics[f'ks_pvalue_{col}'] = ks_pvalue
+            
+            # One-way ANOVA test
+            try:
+                f_statistic, anova_pvalue = f_oneway(
+                    self.real_data[col],
+                    self.synthetic_data[col]
+                )
+                metrics[f'anova_f_statistic_{col}'] = f_statistic
+                metrics[f'anova_pvalue_{col}'] = anova_pvalue
+            except:
+                # Handle cases where ANOVA cannot be calculated
+                metrics[f'anova_f_statistic_{col}'] = float('nan')
+                metrics[f'anova_pvalue_{col}'] = float('nan')
 
         return metrics
+        
+    def anova_summary(self) -> pd.DataFrame:
+        """Summarize one-way ANOVA results for each numerical column"""
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        results = []
+        
+        for col in numerical_cols:
+            try:
+                f_statistic, p_value = f_oneway(
+                    self.real_data[col],
+                    self.synthetic_data[col]
+                )
+                
+                # Interpretation
+                if p_value < 0.05:
+                    interpretation = "Significant difference"
+                else:
+                    interpretation = "No significant difference"
+                    
+                results.append({
+                    'Column': col,
+                    'F_statistic': f_statistic,
+                    'P_value': p_value,
+                    'Interpretation': interpretation
+                })
+            except Exception as e:
+                results.append({
+                    'Column': col,
+                    'F_statistic': float('nan'),
+                    'P_value': float('nan'),
+                    'Interpretation': f"Error: {str(e)}"
+                })
+                
+        return pd.DataFrame(results)
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
@@ -392,6 +440,11 @@ class DataEvaluator:
             results['divergence_metrics'] = self.calculate_distribution_divergence()
         except Exception as e:
             results['divergence_metrics'] = f"Error: {str(e)}"
+            
+        try:
+            results['anova_summary'] = self.anova_summary()
+        except Exception as e:
+            results['anova_summary'] = f"Error: {str(e)}"
 
         if target_column:
             if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
