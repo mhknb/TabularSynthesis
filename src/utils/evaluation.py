@@ -10,15 +10,6 @@ from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import seaborn as sns
 
-try:
-    from sdmetrics.reports.single_table import QualityReport
-    from sdmetrics.visualization import get_column_pair_plot
-except ImportError:
-    print("Warning: SDMetrics not properly installed. Quality metrics will be disabled.")
-    QualityReport = None
-    get_column_pair_plot = None
-import matplotlib.pyplot as plt
-
 class DataEvaluator:
     """Evaluates quality of synthetic data compared to real data"""
 
@@ -28,15 +19,13 @@ class DataEvaluator:
         print(f"Real data columns: {real_data.columns.tolist()}")
         print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
 
-        self.quality_report = None
-
         self.real_data = real_data.copy()
         self.synthetic_data = synthetic_data.copy()
 
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
-
+        
         # Handle the case when no common columns exist
         if not common_cols:
             print("WARNING: No common columns found between real and synthetic data!")
@@ -44,11 +33,11 @@ class DataEvaluator:
             self.real_data['_dummy'] = 0
             self.synthetic_data['_dummy'] = 0
             common_cols = ['_dummy']
-
+            
         # Only use columns that exist in both datasets
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
-
+        
         # Fill missing values to prevent NoneType comparison errors
         self.real_data = self.real_data.fillna(0)
         self.synthetic_data = self.synthetic_data.fillna(0)
@@ -80,9 +69,6 @@ class DataEvaluator:
 
         if n_cols == 0:
             return None
-
-        import matplotlib.pyplot as plt
-        fig = plt.figure(figsize=(12, 4 * ((n_cols + 1) // 2)))
 
         # Create subplots grid
         n_rows = (n_cols + 2) // 3  # 3 columns per row
@@ -278,25 +264,25 @@ class DataEvaluator:
                 metrics[f'anova_pvalue_{col}'] = float('nan')
 
         return metrics
-
+        
     def anova_summary(self) -> pd.DataFrame:
         """Summarize one-way ANOVA results for each numerical column"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         results = []
-
+        
         for col in numerical_cols:
             try:
                 f_statistic, p_value = f_oneway(
                     self.real_data[col],
                     self.synthetic_data[col]
                 )
-
+                
                 # Interpretation
                 if p_value < 0.05:
                     interpretation = "Significant difference"
                 else:
                     interpretation = "No significant difference"
-
+                    
                 results.append({
                     'Column': col,
                     'F_statistic': f_statistic,
@@ -310,42 +296,8 @@ class DataEvaluator:
                     'P_value': float('nan'),
                     'Interpretation': f"Error: {str(e)}"
                 })
-
+                
         return pd.DataFrame(results)
-
-    def calculate_quality_metrics(self) -> dict:
-        """Calculate quality metrics using SDMetrics"""
-        try:
-            # Initialize and generate quality report
-            metadata = {
-                'columns': {col: {'sdtype': 'numerical'} for col in self.real_data.select_dtypes(include=['int64', 'float64']).columns}
-            }
-            metadata['columns'].update({col: {'sdtype': 'categorical'} for col in self.real_data.select_dtypes(include=['object', 'category']).columns})
-
-            self.quality_report = QualityReport()
-            self.quality_report.generate(self.real_data, self.synthetic_data, metadata)
-
-            # Get overall scores
-            scores = {
-                'overall_quality': self.quality_report.get_score() * 100,
-                'column_shapes': self.quality_report.get_properties()['Column Shapes Score'] * 100,
-                'column_pairs': self.quality_report.get_properties()['Column Pair Trends Score'] * 100
-            }
-
-            return scores
-        except Exception as e:
-            print(f"Error calculating quality metrics: {str(e)}")
-            return {
-                'overall_quality': 0.0,
-                'column_shapes': 0.0,
-                'column_pairs': 0.0
-            }
-
-    def get_column_pair_plot(self) -> plt.Figure:
-        """Generate column pair trends visualization"""
-        if self.quality_report is None:
-            self.calculate_quality_metrics()
-        return self.quality_report.get_visualization(property_name='Column Pair Trends')
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
@@ -425,13 +377,8 @@ class DataEvaluator:
             ax.text(0.5, 0.5, 'No numerical columns to compare', 
                    horizontalalignment='center', verticalalignment='center')
             if save_path:
-                # Check if it's a plotly figure
-                if hasattr(fig, 'write_image'):
-                    fig.write_image(save_path, engine='kaleido')
-                # Otherwise assume it's a matplotlib figure
-                else:
-                    plt.savefig(save_path)
-                    plt.close()
+                plt.savefig(save_path)
+                plt.close()
             return fig
 
         n_cols = len(numerical_cols)
@@ -485,7 +432,7 @@ class DataEvaluator:
             results['divergence_metrics'] = self.calculate_distribution_divergence()
         except Exception as e:
             results['divergence_metrics'] = f"Error: {str(e)}"
-
+            
         try:
             results['anova_summary'] = self.anova_summary()
         except Exception as e:
