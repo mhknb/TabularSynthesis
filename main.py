@@ -520,6 +520,20 @@ def main():
                 st.subheader("Data Quality Evaluation")
                 evaluator = DataEvaluator(df, result_df)
 
+                # Quality Metrics
+                with st.expander("Synthetic Data Quality Metrics"):
+                    quality_scores = evaluator.calculate_quality_metrics()
+                    st.write("### Overall Quality Score")
+                    st.write(f"{quality_scores['overall_quality']:.2f}%")
+                    
+                    st.write("### Properties")
+                    st.write(f"Column Shapes: {quality_scores['column_shapes']:.2f}%")
+                    st.write(f"Column Pair Trends: {quality_scores['column_pairs']:.2f}%")
+                    
+                    st.write("### Column Pair Trends Visualization")
+                    fig = evaluator.get_column_pair_plot()
+                    st.pyplot(fig)
+
                 # Statistical tests
                 with st.expander("Statistical Similarity Tests"):
                     stats = evaluator.statistical_similarity()

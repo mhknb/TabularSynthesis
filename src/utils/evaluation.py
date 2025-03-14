@@ -10,6 +10,10 @@ from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import seaborn as sns
 
+from sdmetrics.reports.single_table import QualityReport
+from sdmetrics.visualization import get_column_pair_plot
+import matplotlib.pyplot as plt
+
 class DataEvaluator:
     """Evaluates quality of synthetic data compared to real data"""
 
@@ -18,6 +22,8 @@ class DataEvaluator:
         print("\nDEBUG - DataEvaluator initialization:")
         print(f"Real data columns: {real_data.columns.tolist()}")
         print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
+        
+        self.quality_report = None
 
         self.real_data = real_data.copy()
         self.synthetic_data = synthetic_data.copy()
@@ -298,6 +304,35 @@ class DataEvaluator:
                 })
                 
         return pd.DataFrame(results)
+
+    def calculate_quality_metrics(self) -> dict:
+        """Calculate quality metrics using SDMetrics"""
+        try:
+            # Initialize and generate quality report
+            self.quality_report = QualityReport()
+            self.quality_report.generate(self.real_data, self.synthetic_data)
+            
+            # Get overall scores
+            scores = {
+                'overall_quality': self.quality_report.get_score() * 100,
+                'column_shapes': self.quality_report.get_properties()['Column Shapes Score'] * 100,
+                'column_pairs': self.quality_report.get_properties()['Column Pair Trends Score'] * 100
+            }
+            
+            return scores
+        except Exception as e:
+            print(f"Error calculating quality metrics: {str(e)}")
+            return {
+                'overall_quality': 0.0,
+                'column_shapes': 0.0,
+                'column_pairs': 0.0
+            }
+
+    def get_column_pair_plot(self) -> plt.Figure:
+        """Generate column pair trends visualization"""
+        if self.quality_report is None:
+            self.calculate_quality_metrics()
+        return self.quality_report.get_visualization(property_name='Column Pair Trends')
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
