@@ -81,6 +81,9 @@ class DataEvaluator:
         if n_cols == 0:
             return None
 
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(12, 4 * ((n_cols + 1) // 2)))
+
         # Create subplots grid
         n_rows = (n_cols + 2) // 3  # 3 columns per row
         fig, axes = plt.subplots(n_rows, 3, figsize=(15, 5*n_rows))
