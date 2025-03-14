@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.spatial.distance import jensenshannon
-from scipy.stats import wasserstein_distance, f_oneway, chi2_contingency
+from scipy.stats import wasserstein_distance, f_oneway
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -18,8 +18,6 @@ class DataEvaluator:
         print("\nDEBUG - DataEvaluator initialization:")
         print(f"Real data columns: {real_data.columns.tolist()}")
         print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
-        print(f"Real data shape: {real_data.shape}")
-        print(f"Synthetic data shape: {synthetic_data.shape}")
 
         self.real_data = real_data.copy()
         self.synthetic_data = synthetic_data.copy()
@@ -27,7 +25,7 @@ class DataEvaluator:
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
-
+        
         # Handle the case when no common columns exist
         if not common_cols:
             print("WARNING: No common columns found between real and synthetic data!")
@@ -35,17 +33,16 @@ class DataEvaluator:
             self.real_data['_dummy'] = 0
             self.synthetic_data['_dummy'] = 0
             common_cols = ['_dummy']
-
+            
         # Only use columns that exist in both datasets
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
-
+        
         # Fill missing values to prevent NoneType comparison errors
         self.real_data = self.real_data.fillna(0)
         self.synthetic_data = self.synthetic_data.fillna(0)
 
-        print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
-        print(f"Final shapes - Real: {self.real_data.shape}, Synthetic: {self.synthetic_data.shape}")
+        print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
 
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
@@ -248,17 +245,12 @@ class DataEvaluator:
             raise
 
     def statistical_similarity(self) -> dict:
-        """Calculate statistical similarity metrics for both numerical and categorical columns"""
-        print("\nDEBUG - Statistical Similarity:")
-        print(f"Available columns: {self.real_data.columns.tolist()}")
-
+        """Calculate statistical similarity metrics"""
         metrics = {}
-
-        # Handle numerical columns with ANOVA
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-        print(f"Numerical columns for analysis: {numerical_cols.tolist()}")
 
         for col in numerical_cols:
+            # One-way ANOVA test
             try:
                 f_statistic, anova_pvalue = f_oneway(
                     self.real_data[col],
@@ -266,280 +258,46 @@ class DataEvaluator:
                 )
                 metrics[f'anova_f_statistic_{col}'] = f_statistic
                 metrics[f'anova_pvalue_{col}'] = anova_pvalue
-            except Exception as e:
-                print(f"Error calculating ANOVA for column {col}: {str(e)}")
+            except:
+                # Handle cases where ANOVA cannot be calculated
                 metrics[f'anova_f_statistic_{col}'] = float('nan')
                 metrics[f'anova_pvalue_{col}'] = float('nan')
 
-        # Handle categorical columns with Chi-square test
-        categorical_cols = self.real_data.select_dtypes(exclude=['int64', 'float64']).columns
-        print(f"Categorical columns for analysis: {categorical_cols.tolist()}")
-
-        for col in categorical_cols:
-            try:
-                # Create contingency table
-                real_counts = pd.Series(self.real_data[col].value_counts())
-                synth_counts = pd.Series(self.synthetic_data[col].value_counts())
-
-                # Align categories
-                all_categories = list(set(real_counts.index) | set(synth_counts.index))
-                contingency = pd.DataFrame({
-                    'real': [real_counts.get(cat, 0) for cat in all_categories],
-                    'synthetic': [synth_counts.get(cat, 0) for cat in all_categories]
-                })
-
-                # Chi-square test
-                chi2_stat, chi2_pvalue, _, _ = chi2_contingency(contingency)
-                metrics[f'chi2_statistic_{col}'] = chi2_stat
-                metrics[f'chi2_pvalue_{col}'] = chi2_pvalue
-            except Exception as e:
-                print(f"Error calculating Chi-square for column {col}: {str(e)}")
-                metrics[f'chi2_statistic_{col}'] = float('nan')
-                metrics[f'chi2_pvalue_{col}'] = float('nan')
-
         return metrics
-
+        
     def anova_summary(self) -> pd.DataFrame:
-        """Summarize statistical test results for all columns"""
-        results = []
-
-        # Handle numerical columns with ANOVA
+        """Summarize one-way ANOVA results for each numerical column"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        results = []
+        
         for col in numerical_cols:
             try:
                 f_statistic, p_value = f_oneway(
                     self.real_data[col],
                     self.synthetic_data[col]
                 )
+                
+                # Interpretation
+                if p_value < 0.05:
+                    interpretation = "Significant difference"
+                else:
+                    interpretation = "No significant difference"
+                    
                 results.append({
                     'Column': col,
-                    'Test': 'ANOVA',
-                    'Statistic': f_statistic,
+                    'F_statistic': f_statistic,
                     'P_value': p_value,
-                    'Interpretation': "Significant difference" if p_value < 0.05 else "No significant difference"
+                    'Interpretation': interpretation
                 })
             except Exception as e:
                 results.append({
                     'Column': col,
-                    'Test': 'ANOVA',
-                    'Statistic': float('nan'),
+                    'F_statistic': float('nan'),
                     'P_value': float('nan'),
                     'Interpretation': f"Error: {str(e)}"
                 })
-
-        # Handle categorical columns with Chi-square test
-        categorical_cols = self.real_data.select_dtypes(exclude=['int64', 'float64']).columns
-        for col in categorical_cols:
-            try:
-                real_counts = pd.Series(self.real_data[col].value_counts())
-                synth_counts = pd.Series(self.synthetic_data[col].value_counts())
-
-                all_categories = list(set(real_counts.index) | set(synth_counts.index))
-                contingency = pd.DataFrame({
-                    'real': [real_counts.get(cat, 0) for cat in all_categories],
-                    'synthetic': [synth_counts.get(cat, 0) for cat in all_categories]
-                })
-
-                chi2_stat, p_value, _, _ = chi2_contingency(contingency)
-                results.append({
-                    'Column': col,
-                    'Test': 'Chi-square',
-                    'Statistic': chi2_stat,
-                    'P_value': p_value,
-                    'Interpretation': "Significant difference" if p_value < 0.05 else "No significant difference"
-                })
-            except Exception as e:
-                results.append({
-                    'Column': col,
-                    'Test': 'Chi-square',
-                    'Statistic': float('nan'),
-                    'P_value': float('nan'),
-                    'Interpretation': f"Error: {str(e)}"
-                })
-
+                
         return pd.DataFrame(results)
-
-    def plot_cumulative_distributions(self, save_path: str = None):
-        """Plot cumulative distribution comparisons for numerical columns"""
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-        n_cols = len(numerical_cols)
-
-        if n_cols == 0:
-            return None
-
-        # Create subplots grid
-        n_rows = (n_cols + 2) // 3  # 3 columns per row
-        fig, axes = plt.subplots(n_rows, 3, figsize=(15, 5*n_rows))
-        if n_rows == 1:
-            axes = axes.reshape(1, -1)
-
-        for idx, col in enumerate(numerical_cols):
-            row = idx // 3
-            col_idx = idx % 3
-
-            # Sort values for cumulative distribution
-            real_sorted = np.sort(self.real_data[col].values)
-            synth_sorted = np.sort(self.synthetic_data[col].values)
-
-            # Calculate cumulative probabilities
-            real_cdf = np.arange(1, len(real_sorted) + 1) / len(real_sorted)
-            synth_cdf = np.arange(1, len(synth_sorted) + 1) / len(synth_sorted)
-
-            # Normalize values to [-1, 1] range for comparison
-            real_norm = 2 * (real_sorted - real_sorted.min()) / (real_sorted.max() - real_sorted.min()) - 1
-            synth_norm = 2 * (synth_sorted - synth_sorted.min()) / (synth_sorted.max() - synth_sorted.min()) - 1
-
-            # Plot
-            axes[row, col_idx].plot(real_norm, real_cdf, label='Real Data', color='blue')
-            axes[row, col_idx].plot(synth_norm, synth_cdf, label='Synthetic Data', color='orange')
-            axes[row, col_idx].set_title(f'{col}')
-            axes[row, col_idx].set_xlabel('Normalized Value')
-            axes[row, col_idx].set_ylabel('Cumulative Probability')
-            axes[row, col_idx].legend()
-            axes[row, col_idx].grid(True, alpha=0.3)
-
-        # Hide empty subplots
-        for idx in range(n_cols, n_rows * 3):
-            row = idx // 3
-            col_idx = idx % 3
-            axes[row, col_idx].set_visible(False)
-
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path)
-            plt.close()
-        return fig
-
-    def preprocess_features(self, X: pd.DataFrame, scalers=None, encoders=None):
-        """Preprocess features while preserving column names"""
-        print("\nDEBUG - Feature preprocessing:")
-        print(f"Input data shape: {X.shape}")
-        print(f"Input columns: {X.columns.tolist()}")
-
-        # Create a copy to avoid modifying original data
-        X = X.copy()
-        result_df = pd.DataFrame(index=X.index)
-
-        # Initialize transformers if not provided
-        if scalers is None:
-            print("Creating new scalers")
-            scalers = {}
-            is_training = True
-        else:
-            print("Using existing scalers")
-            is_training = False
-
-        if encoders is None:
-            print("Creating new encoders")
-            encoders = {}
-
-        # Process numerical columns
-        numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns
-        for col in numerical_cols:
-            print(f"Processing numerical column: {col}")
-            if col not in scalers and is_training:
-                scalers[col] = StandardScaler()
-
-            if is_training:
-                result_df[col] = scalers[col].fit_transform(X[[col]])
-            else:
-                result_df[col] = scalers[col].transform(X[[col]])
-
-        # Process categorical columns
-        categorical_cols = X.select_dtypes(exclude=['int64', 'float64']).columns
-        for col in categorical_cols:
-            print(f"Processing categorical column: {col}")
-            if col not in encoders:
-                print(f"Creating new encoder for {col}")
-                encoder = LabelEncoder()
-                unique_values = list(X[col].unique()) + ['Other']
-                encoder.fit(unique_values)
-                encoders[col] = encoder
-
-            # Map unseen categories to 'Other'
-            X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
-            result_df[col] = encoders[col].transform(X[col])
-
-        print(f"Output data shape: {result_df.shape}")
-        print(f"Output columns: {result_df.columns.tolist()}")
-
-        return result_df, scalers, encoders
-
-    def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
-        """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
-        try:
-            print(f"\nDEBUG - ML Utility Evaluation:")
-            print(f"Target column: {target_column}")
-            print(f"Task type: {task_type}")
-
-            # Prepare features and target
-            feature_cols = [col for col in self.real_data.columns if col != target_column]
-            X_real = self.real_data[feature_cols]
-            y_real = self.real_data[target_column]
-            X_synthetic = self.synthetic_data[feature_cols]
-            y_synthetic = self.synthetic_data[target_column]
-
-            print(f"Feature columns: {feature_cols}")
-
-            # Split real data
-            X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
-                X_real, y_real, test_size=test_size, random_state=42
-            )
-
-            # Preprocess features
-            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
-            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
-            X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
-
-            # Handle target variable
-            if task_type == 'classification':
-                target_encoder = LabelEncoder()
-                unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
-                target_encoder.fit(unique_vals)
-
-                y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
-                y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
-                y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
-
-                y_train_real = target_encoder.transform(y_train_real)
-                y_test_real = target_encoder.transform(y_test_real)
-                y_synthetic = target_encoder.transform(y_synthetic)
-
-            # Initialize models
-            if task_type == 'classification':
-                real_model = RandomForestClassifier(n_estimators=100, random_state=42)
-                synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
-                metric_func = accuracy_score
-                metric_name = 'accuracy'
-            else:
-                real_model = RandomForestRegressor(n_estimators=100, random_state=42)
-                synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
-                metric_func = r2_score
-                metric_name = 'r2_score'
-
-            # Train and evaluate models
-            real_model.fit(X_train_processed, y_train_real)
-            real_pred = real_model.predict(X_test_processed)
-            real_score = metric_func(y_test_real, real_pred)
-
-            synthetic_model.fit(X_synthetic_processed, y_synthetic)
-            synthetic_pred = synthetic_model.predict(X_test_processed)
-            synthetic_score = metric_func(y_test_real, synthetic_pred)
-
-            relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
-
-            return {
-                f'real_model_{metric_name}': real_score,
-                f'synthetic_model_{metric_name}': synthetic_score,
-                'relative_performance_percentage': relative_performance
-            }
-
-        except Exception as e:
-            print(f"Error in ML utility evaluation: {str(e)}")
-            print("Full error context:")
-            import traceback
-            traceback.print_exc()
-            raise
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
@@ -600,12 +358,12 @@ class DataEvaluator:
 
         # Add safe division to avoid division by zero
         comparison['mean_diff_pct'] = np.abs(
-            (comparison['real_mean'] - comparison['synthetic_mean']) /
+            (comparison['real_mean'] - comparison['synthetic_mean']) / 
             (comparison['real_mean'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
         comparison['std_diff_pct'] = np.abs(
-            (comparison['real_std'] - comparison['synthetic_std']) /
+            (comparison['real_std'] - comparison['synthetic_std']) / 
             (comparison['real_std'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
@@ -616,7 +374,7 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         if len(numerical_cols) == 0:
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-            ax.text(0.5, 0.5, 'No numerical columns to compare',
+            ax.text(0.5, 0.5, 'No numerical columns to compare', 
                    horizontalalignment='center', verticalalignment='center')
             if save_path:
                 plt.savefig(save_path)
@@ -674,7 +432,7 @@ class DataEvaluator:
             results['divergence_metrics'] = self.calculate_distribution_divergence()
         except Exception as e:
             results['divergence_metrics'] = f"Error: {str(e)}"
-
+            
         try:
             results['anova_summary'] = self.anova_summary()
         except Exception as e:
