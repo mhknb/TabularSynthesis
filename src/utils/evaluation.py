@@ -27,7 +27,7 @@ class DataEvaluator:
         print("\nDEBUG - DataEvaluator initialization:")
         print(f"Real data columns: {real_data.columns.tolist()}")
         print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
-        
+
         self.quality_report = None
 
         self.real_data = real_data.copy()
@@ -36,7 +36,7 @@ class DataEvaluator:
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
-        
+
         # Handle the case when no common columns exist
         if not common_cols:
             print("WARNING: No common columns found between real and synthetic data!")
@@ -44,11 +44,11 @@ class DataEvaluator:
             self.real_data['_dummy'] = 0
             self.synthetic_data['_dummy'] = 0
             common_cols = ['_dummy']
-            
+
         # Only use columns that exist in both datasets
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
-        
+
         # Fill missing values to prevent NoneType comparison errors
         self.real_data = self.real_data.fillna(0)
         self.synthetic_data = self.synthetic_data.fillna(0)
@@ -278,25 +278,25 @@ class DataEvaluator:
                 metrics[f'anova_pvalue_{col}'] = float('nan')
 
         return metrics
-        
+
     def anova_summary(self) -> pd.DataFrame:
         """Summarize one-way ANOVA results for each numerical column"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         results = []
-        
+
         for col in numerical_cols:
             try:
                 f_statistic, p_value = f_oneway(
                     self.real_data[col],
                     self.synthetic_data[col]
                 )
-                
+
                 # Interpretation
                 if p_value < 0.05:
                     interpretation = "Significant difference"
                 else:
                     interpretation = "No significant difference"
-                    
+
                 results.append({
                     'Column': col,
                     'F_statistic': f_statistic,
@@ -310,7 +310,7 @@ class DataEvaluator:
                     'P_value': float('nan'),
                     'Interpretation': f"Error: {str(e)}"
                 })
-                
+
         return pd.DataFrame(results)
 
     def calculate_quality_metrics(self) -> dict:
@@ -321,17 +321,17 @@ class DataEvaluator:
                 'columns': {col: {'sdtype': 'numerical'} for col in self.real_data.select_dtypes(include=['int64', 'float64']).columns}
             }
             metadata['columns'].update({col: {'sdtype': 'categorical'} for col in self.real_data.select_dtypes(include=['object', 'category']).columns})
-            
+
             self.quality_report = QualityReport()
             self.quality_report.generate(self.real_data, self.synthetic_data, metadata)
-            
+
             # Get overall scores
             scores = {
                 'overall_quality': self.quality_report.get_score() * 100,
                 'column_shapes': self.quality_report.get_properties()['Column Shapes Score'] * 100,
                 'column_pairs': self.quality_report.get_properties()['Column Pair Trends Score'] * 100
             }
-            
+
             return scores
         except Exception as e:
             print(f"Error calculating quality metrics: {str(e)}")
@@ -427,7 +427,7 @@ class DataEvaluator:
             if save_path:
                 # Check if it's a plotly figure
                 if hasattr(fig, 'write_image'):
-                    fig.write_image(save_path)
+                    fig.write_image(save_path, engine='kaleido')
                 # Otherwise assume it's a matplotlib figure
                 else:
                     plt.savefig(save_path)
@@ -485,7 +485,7 @@ class DataEvaluator:
             results['divergence_metrics'] = self.calculate_distribution_divergence()
         except Exception as e:
             results['divergence_metrics'] = f"Error: {str(e)}"
-            
+
         try:
             results['anova_summary'] = self.anova_summary()
         except Exception as e:
