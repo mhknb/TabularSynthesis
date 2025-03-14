@@ -19,6 +19,7 @@ from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
 from src.models.cgan import CGAN
 from src.models.tvae import TVAE
+from src.models.ctgan_model import CTGANModel # Added CTGAN import
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
@@ -384,6 +385,13 @@ def main():
                             latent_dim=model_config['latent_dim'],
                             device=device
                         )
+                    elif model_config['model_type'] == 'CTGAN': # Added CTGAN model initialization
+                        gan = CTGANModel(
+                            input_dim=transformed_data.shape[1],
+                            hidden_dim=model_config['hidden_dim'],
+                            epochs=model_config['epochs'],
+                            device=device
+                        )
                     else:  # TableGAN
                         gan = TableGAN(
                             input_dim=transformed_data.shape[1],
@@ -611,12 +619,30 @@ def model_config_section():
 
     model_config['model_type'] = st.selectbox(
         "Select Model Type",
-        options=['TableGAN', 'WGAN', 'CGAN', 'TVAE'],
+        options=['TableGAN', 'WGAN', 'CGAN', 'TVAE', 'CTGAN'],  # Added CTGAN
         help="Choose the type of model to use for synthetic data generation"
     )
 
-    # Add latent dimension parameter for TVAE
-    if model_config['model_type'] == 'TVAE':
+    # Add configuration options specific to CTGAN
+    if model_config['model_type'] == 'CTGAN':
+        model_config['epochs'] = st.slider(
+            "Number of Epochs",
+            min_value=10,
+            max_value=1000,
+            value=100,
+            step=10,
+            help="Number of training epochs for CTGAN"
+        )
+        model_config['hidden_dim'] = st.slider(
+            "Embedding Dimension",
+            min_value=64,
+            max_value=512,
+            value=256,
+            step=64,
+            help="Size of embedding dimension in CTGAN"
+        )
+        st.info("CTGAN automatically handles batch size and learning rate optimization")
+    elif model_config['model_type'] == 'TVAE':
         model_config['latent_dim'] = st.slider(
             "Latent Dimension",
             min_value=32,
@@ -625,7 +651,7 @@ def model_config_section():
             step=32,
             help="Dimension of the latent space for TVAE"
         )
-
+    
     model_config['hidden_dim'] = st.slider(
         "Hidden Dimension",
         min_value=64,
