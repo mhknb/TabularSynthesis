@@ -541,33 +541,38 @@ def main():
 
                 evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
-                # Statistical tests
-                with st.expander("Statistical Similarity Tests"):
-                    stats = evaluator.statistical_similarity()
-                    for col, values in stats.items():
-                        st.write(f"{col}: {values:.4f}")
-
-                # One-way ANOVA test
-                with st.expander("One-way ANOVA Test Results"):
+                # One-way ANOVA test and Chi-square test results
+                with st.expander("Statistical Test Results"):
                     try:
                         anova_results = evaluator.anova_summary()
+                        st.write("Statistical Test Results:")
                         st.dataframe(anova_results)
-                        
+
                         # Highlight columns with significant differences
                         significant_cols = anova_results[anova_results['P_value'] < 0.05]['Column'].tolist()
                         if significant_cols:
-                            st.warning(f"Columns with significant differences (p < 0.05): {', '.join(significant_cols)}")
+                            # Separate numerical and categorical columns
+                            numerical_cols = eval_real_df.select_dtypes(include=['int64', 'float64']).columns
+                            numerical_significant = [col for col in significant_cols if col in numerical_cols]
+                            categorical_significant = [col for col in significant_cols if col not in numerical_cols]
+
+                            if numerical_significant:
+                                st.warning(f"Numerical columns with significant differences (ANOVA p < 0.05): {', '.join(numerical_significant)}")
+                            if categorical_significant:
+                                st.warning(f"Categorical columns with significant differences (Chi-square p < 0.05): {', '.join(categorical_significant)}")
+
                             st.info("""
-                            Note: For numerical columns, ANOVA test was used.
-                            For categorical columns, Chi-square test was used.
-                            A significant difference (p < 0.05) indicates that the synthetic data distribution
-                            differs from the real data distribution for that column.
+                            Note: 
+                            - For numerical columns (continuous data), ANOVA test was used
+                            - For categorical columns (discrete data), Chi-square test was used
+                            - A significant difference (p < 0.05) indicates that the synthetic data distribution
+                              differs from the real data distribution for that column
                             """)
                         else:
                             st.success("No significant differences found between real and synthetic data distributions.")
 
                     except Exception as e:
-                        st.error(f"Error calculating ANOVA: {str(e)}")
+                        st.error(f"Error calculating statistical tests: {str(e)}")
 
                 # Correlation similarity
                 with st.expander("Correlation Matrix Similarity"):
