@@ -557,8 +557,15 @@ def main():
                         significant_cols = anova_results[anova_results['P_value'] < 0.05]['Column'].tolist()
                         if significant_cols:
                             st.warning(f"Columns with significant differences (p < 0.05): {', '.join(significant_cols)}")
+                            st.info("""
+                            Note: For numerical columns, ANOVA test was used.
+                            For categorical columns, Chi-square test was used.
+                            A significant difference (p < 0.05) indicates that the synthetic data distribution
+                            differs from the real data distribution for that column.
+                            """)
                         else:
                             st.success("No significant differences found between real and synthetic data distributions.")
+
                     except Exception as e:
                         st.error(f"Error calculating ANOVA: {str(e)}")
 
