@@ -425,8 +425,13 @@ class DataEvaluator:
             ax.text(0.5, 0.5, 'No numerical columns to compare', 
                    horizontalalignment='center', verticalalignment='center')
             if save_path:
-                plt.savefig(save_path)
-                plt.close()
+                # Check if it's a plotly figure
+                if hasattr(fig, 'write_image'):
+                    fig.write_image(save_path)
+                # Otherwise assume it's a matplotlib figure
+                else:
+                    plt.savefig(save_path)
+                    plt.close()
             return fig
 
         n_cols = len(numerical_cols)
