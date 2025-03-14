@@ -314,8 +314,13 @@ class DataEvaluator:
         """Calculate quality metrics using SDMetrics"""
         try:
             # Initialize and generate quality report
+            metadata = {
+                'columns': {col: {'sdtype': 'numerical'} for col in self.real_data.select_dtypes(include=['int64', 'float64']).columns}
+            }
+            metadata['columns'].update({col: {'sdtype': 'categorical'} for col in self.real_data.select_dtypes(include=['object', 'category']).columns})
+            
             self.quality_report = QualityReport()
-            self.quality_report.generate(self.real_data, self.synthetic_data)
+            self.quality_report.generate(self.real_data, self.synthetic_data, metadata)
             
             # Get overall scores
             scores = {
