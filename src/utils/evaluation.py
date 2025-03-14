@@ -18,6 +18,8 @@ class DataEvaluator:
         print("\nDEBUG - DataEvaluator initialization:")
         print(f"Real data columns: {real_data.columns.tolist()}")
         print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
+        print(f"Real data shape: {real_data.shape}")
+        print(f"Synthetic data shape: {synthetic_data.shape}")
 
         self.real_data = real_data.copy()
         self.synthetic_data = synthetic_data.copy()
@@ -25,7 +27,7 @@ class DataEvaluator:
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
-        
+
         # Handle the case when no common columns exist
         if not common_cols:
             print("WARNING: No common columns found between real and synthetic data!")
@@ -33,16 +35,17 @@ class DataEvaluator:
             self.real_data['_dummy'] = 0
             self.synthetic_data['_dummy'] = 0
             common_cols = ['_dummy']
-            
+
         # Only use columns that exist in both datasets
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
-        
+
         # Fill missing values to prevent NoneType comparison errors
         self.real_data = self.real_data.fillna(0)
         self.synthetic_data = self.synthetic_data.fillna(0)
 
-        print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
+        print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
+        print(f"Final shapes - Real: {self.real_data.shape}, Synthetic: {self.synthetic_data.shape}")
 
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
@@ -298,7 +301,7 @@ class DataEvaluator:
                 })
                 
         return pd.DataFrame(results)
-
+    
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns

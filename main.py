@@ -187,6 +187,7 @@ def main():
                 st.warning("You cannot exclude all columns")
 
 
+
     # Target column selection for ML evaluation
     st.subheader("ML Evaluation Settings")
 
@@ -526,7 +527,12 @@ def main():
 
                 # Evaluate synthetic data
                 st.subheader("Data Quality Evaluation")
-                evaluator = DataEvaluator(df, result_df)
+
+                # Filter both dataframes to only include selected columns
+                eval_real_df = df[selected_columns]
+                eval_synthetic_df = result_df[selected_columns]
+
+                evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
                 # Statistical tests
                 with st.expander("Statistical Similarity Tests"):
@@ -652,6 +658,7 @@ def model_config_section():
             help="Dimension of the latent space for TVAE"
         )
     
+
     model_config['hidden_dim'] = st.slider(
         "Hidden Dimension",
         min_value=64,
