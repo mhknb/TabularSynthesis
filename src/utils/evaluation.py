@@ -250,14 +250,6 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
 
         for col in numerical_cols:
-            # Kolmogorov-Smirnov test
-            ks_statistic, ks_pvalue = stats.ks_2samp(
-                self.real_data[col],
-                self.synthetic_data[col]
-            )
-            metrics[f'ks_statistic_{col}'] = ks_statistic
-            metrics[f'ks_pvalue_{col}'] = ks_pvalue
-            
             # One-way ANOVA test
             try:
                 f_statistic, anova_pvalue = f_oneway(
