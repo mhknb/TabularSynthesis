@@ -30,6 +30,7 @@ import streamlit as st
 import torch
 import pandas as pd
 import wandb #added for wandb integration
+import asyncio
 
 # Configure wandb defaults
 os.environ["WANDB_ENTITY"] = "smilai"
@@ -49,12 +50,14 @@ from sklearn.model_selection import train_test_split
 from bayes_opt import BayesianOptimization
 import matplotlib.pyplot as plt #added for plot closing
 
-# Initialize event loop for async operations
+# Initialize event loop for async operations if needed
 try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    import asyncio
+    if not asyncio._get_running_loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+except Exception as e:
+    print(f"Note: Async setup skipped - {str(e)}")
 
 # Configure Streamlit page
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
