@@ -1,46 +1,19 @@
+import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-
-# Add debug logging for imports
-print("Python version:", sys.version)
-print("Current working directory:", os.getcwd())
-print("sys.path:", sys.path)
-
-try:
-    import scipy
-    print("Successfully imported scipy version:", scipy.__version__)
-except ImportError as e:
-    print("Failed to import scipy:", str(e))
-
-try:
-    import numpy as np
-    print("Successfully imported numpy version:", np.__version__)
-    # Add compatibility layer for scipy.interp
-    if not hasattr(scipy, "interp"):
-        print("Adding compatibility layer for scipy.interp")
-        scipy.interp = np.interp
-except ImportError as e:
-    print("Failed to import numpy:", str(e))
-
-try:
-    from src.data_processing.transformers import DataTransformer
-    print("Successfully imported DataTransformer")
-except ImportError as e:
-    print("Failed to import DataTransformer:", str(e))
-    print("sys.path at time of error:", sys.path)
-
-import streamlit as st
-import torch
-import pandas as pd
 import wandb #added for wandb integration
-import asyncio
 
 # Configure wandb defaults
 os.environ["WANDB_ENTITY"] = "smilai"
 os.environ["WANDB_PROJECT"] = "sd1"
 
+import streamlit as st
+import torch
+import pandas as pd
+import numpy as np
 from src.data_processing.data_loader import DataLoader
+from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
@@ -54,14 +27,12 @@ from sklearn.model_selection import train_test_split
 from bayes_opt import BayesianOptimization
 import matplotlib.pyplot as plt #added for plot closing
 
-# Initialize event loop for async operations if needed
+# Initialize event loop for async operations
 try:
-    import asyncio
-    if not asyncio._get_running_loop():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-except Exception as e:
-    print(f"Note: Async setup skipped - {str(e)}")
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
 # Configure Streamlit page
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
@@ -303,33 +274,22 @@ def main():
                 if use_modal:
                     try:
                         with st.spinner("Training model on Modal cloud..."):
-                            # Clear progress indicators
-                            progress_bar = st.progress(0)
-                            epoch_status = st.empty()
-
                             # Train on Modal
-                            print(f"Starting Modal training with input_dim={transformed_data.shape[1]}")
                             losses = modal_gan.train(
                                 transformed_data,
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim'],
                                 epochs=model_config['epochs'],
                                 batch_size=model_config['batch_size'],
-                                model_type=model_config['model_type']
+                                model_type=model_config['model_type']  # Pass model type for WandB
                             )
 
                             # Generate samples using Modal
-                            print(f"Generating samples with Modal")
                             synthetic_data = modal_gan.generate(
                                 num_samples=len(df),
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim']
                             )
-
-                            # Verify data is in correct range
-                            if not (0 <= synthetic_data.all() <= 1):
-                                synthetic_data = np.clip(synthetic_data, 0, 1)
-
                     except Exception as e:
                         st.error(f"Modal training failed: {str(e)}")
                         st.info("Falling back to local training...")
@@ -354,18 +314,37 @@ def main():
 
                     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-                    # Initialize selected model with correct input dimensions
-                    input_dim = transformed_data.shape[1]
+                    # Initialize selected model
                     if model_config['model_type'] == 'WGAN':
                         gan = WGAN(
-                            input_dim=input_dim,
+                            input_dim=transformed_data.shape[1],
                             hidden_dim=model_config['hidden_dim'],
                             clip_value=model_config['clip_value'],
                             n_critic=model_config['n_critic'],
                             lr_g=model_config['lr_g'],
                             lr_d=model_config['lr_d'],
-                            device=device
+                            device=device,
+                            use_wandb=True
                         )
+
+                        # Run Bayesian optimization if requested
+                        if model_config.get('use_bayesian_opt', False):
+                            with st.spinner("Running Bayesian hyperparameter optimization..."):
+                                best_params, history = gan.optimize_hyperparameters(
+                                    train_loader, 
+                                    n_epochs=model_config['bayes_epochs'],
+                                    n_iterations=model_config['bayes_iterations']
+                                )
+
+                                # Display optimization results
+                                st.success("Hyperparameter optimization completed!")
+                                st.write("Best Parameters:")
+                                for param, value in best_params.items():
+                                    st.write(f"- {param}: {value:.6f}")
+
+                                # Show optimization history
+                                st.subheader("Optimization History")
+                                st.dataframe(history)
                     elif model_config['model_type'] == 'CGAN':
                         # For CGAN, we need to identify a condition column
                         if 'condition_column' in model_config and model_config['condition_column'] in df.columns:
@@ -403,21 +382,21 @@ def main():
                             )
                     elif model_config['model_type'] == 'TVAE':
                         gan = TVAE(
-                            input_dim=input_dim,
+                            input_dim=transformed_data.shape[1],
                             hidden_dim=model_config['hidden_dim'],
                             latent_dim=model_config['latent_dim'],
                             device=device
                         )
                     elif model_config['model_type'] == 'CTGAN': # Added CTGAN handling
                         gan = CTGAN(
-                            input_dim=input_dim,
+                            input_dim=transformed_data.shape[1],
                             hidden_dim=model_config['hidden_dim'],
                             num_residual_blocks=model_config['num_residual_blocks'],
                             device=device
                         )
                     else:  # TableGAN
                         gan = TableGAN(
-                            input_dim=input_dim,
+                            input_dim=transformed_data.shape[1],
                             hidden_dim=model_config['hidden_dim'],
                             device=device
                         )
@@ -431,22 +410,15 @@ def main():
 
                         # Train loop
                         for epoch in range(model_config['epochs']):
-                            epoch_losses = {'disc_loss': 0, 'gen_loss': 0}
+                            epoch_metrics = {}
                             for i, batch_data in enumerate(train_loader):
-                                # Remove current_step parameter for TableGAN
-                                if model_config['model_type'] == 'TableGAN':
-                                    losses = gan.train_step(batch_data)
-                                else:
-                                    losses = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
-                                epoch_losses['disc_loss'] += losses.get('disc_loss', 0)
-                                epoch_losses['gen_loss'] += losses.get('gen_loss', 0)
+                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+                                epoch_metrics.update(metrics)
 
                             # Update progress
                             progress = (epoch + 1) / model_config['epochs']
                             progress_bar.progress(progress)
-                            avg_disc_loss = epoch_losses['disc_loss'] / len(train_loader)
-                            avg_gen_loss = epoch_losses['gen_loss'] / len(train_loader)
-                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {avg_disc_loss:.4f}, Gen Loss: {avg_gen_loss:.4f}")
+                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {epoch_metrics['disc_loss']:.4f}, Gen Loss: {epoch_metrics['gen_loss']:.4f}")
 
                         # Save the trained model
                         model_dir = "models"
