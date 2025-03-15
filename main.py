@@ -535,66 +535,66 @@ def main():
                 st.write("Synthetic data shape:", eval_synthetic_df.shape)
 
                 evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
-                evaluation_results = evaluator.evaluate()
 
+                # Get all evaluation results
+                evaluation_results = evaluator.evaluate(target_col=target_col)
 
                 # ML utility evaluation
-                with st.expander("ML Utility Evaluation (TSTR)"):
-                    ml_metrics = evaluator.evaluate_ml_utility(
-                        target_column=target_col,
-                        task_type=task_type
-                    )
-                    st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
-                    for metric, value in ml_metrics.items():
-                        st.write(f"{metric}: {value:.4f}")
+                with st.expander("ML Utility Evaluation"):
+                    if evaluation_results.get('classifier_scores') is not None:
+                        st.write("Classifier Performance:")
+                        st.dataframe(evaluation_results['classifier_scores'])
+                    else:
+                        st.warning("Could not calculate classifier scores.")
 
-                # Display comprehensive evaluation results
-                st.subheader("Evaluation Results")
+                    # Privacy Analysis
+                    st.subheader("Privacy Analysis")
+                    privacy_metrics = evaluation_results.get('privacy')
+                    if privacy_metrics:
+                        st.write("\nDuplicate Analysis:")
+                        st.write(f"- Duplicates in real/fake data: {privacy_metrics['Duplicate rows between sets (real/fake)']}")
+                        st.write("\nNearest Neighbor Analysis:")
+                        st.write(f"- Mean distance: {privacy_metrics['nearest neighbor mean']:.4f}")
+                        st.write(f"- Standard deviation: {privacy_metrics['nearest neighbor std']:.4f}")
+                    else:
+                        st.warning("Could not calculate privacy metrics.")
 
-                # Classifier Performance
-                if evaluation_results['classifier_scores'] is not None:
-                    st.write("Classifier F1-scores and Jaccard similarities:")
-                    st.dataframe(evaluation_results['classifier_scores'])
+                    # Correlation Analysis
+                    st.subheader("Correlation Analysis")
+                    correlation_metrics = evaluation_results.get('correlation')
+                    if correlation_metrics:
+                        st.write("Column Correlation Distance Metrics:")
+                        st.write(f"- RMSE: {correlation_metrics['Column Correlation Distance RMSE']:.4f}")
+                        st.write(f"- MAE: {correlation_metrics['Column Correlation distance MAE']:.4f}")
+                    else:
+                        st.warning("Could not calculate correlation metrics.")
 
-                # Privacy Analysis
-                if evaluation_results['privacy'] is not None:
-                    st.write("\nPrivacy Results:")
-                    privacy_metrics = evaluation_results['privacy']
-                    st.write("Duplicate rows between sets (real/fake):", privacy_metrics['Duplicate rows between sets (real/fake)'])
-                    st.write("Nearest neighbor mean:", f"{privacy_metrics['nearest neighbor mean']:.4f}")
-                    st.write("Nearest neighbor std:", f"{privacy_metrics['nearest neighbor std']:.4f}")
+                    # Overall Similarity Results
+                    similarity_metrics = evaluation_results.get('similarity')
+                    if similarity_metrics:
+                        st.subheader("Overall Similarity Metrics")
+                        metrics_df = pd.DataFrame({
+                            'Result': [
+                                f"{similarity_metrics['basic statistics']:.4f}",
+                                f"{similarity_metrics['Correlation column correlations']:.4f}",
+                                f"{similarity_metrics['Mean Correlation between fake and real columns']:.4f}",
+                                f"{similarity_metrics['1 - MAPE Estimator results']:.4f}",
+                                f"{similarity_metrics['1 - MAPE 5 PCA components']:.4f}",
+                                f"{similarity_metrics['Similarity Score']:.4f}"
+                            ]
+                        }, index=[
+                            'Basic statistics',
+                            'Correlation column correlations',
+                            'Mean Correlation between fake and real columns',
+                            '1 - MAPE Estimator results',
+                            '1 - MAPE 5 PCA components',
+                            'Similarity Score'
+                        ])
+                        st.dataframe(metrics_df)
+                    else:
+                        st.warning("Could not calculate similarity metrics.")
 
-                # Correlation Analysis
-                if evaluation_results['correlation'] is not None:
-                    st.write("\nMiscellaneous Results:")
-                    correlation_metrics = evaluation_results['correlation']
-                    st.write("Column Correlation Distance RMSE:", f"{correlation_metrics['Column Correlation Distance RMSE']:.4f}")
-                    st.write("Column Correlation distance MAE:", f"{correlation_metrics['Column Correlation distance MAE']:.4f}")
-
-                # Overall Similarity Results
-                if evaluation_results['similarity'] is not None:
-                    st.write("\nResults:")
-                    similarity_metrics = evaluation_results['similarity']
-                    metrics_df = pd.DataFrame({
-                        'Result': [
-                            f"{similarity_metrics['basic statistics']:.4f}",
-                            f"{similarity_metrics['Correlation column correlations']:.4f}",
-                            f"{similarity_metrics['Mean Correlation between fake and real columns']:.4f}",
-                            f"{similarity_metrics['1 - MAPE Estimator results']:.4f}",
-                            f"{similarity_metrics['1 - MAPE 5 PCA components']:.4f}",
-                            f"{similarity_metrics['Similarity Score']:.4f}"
-                        ]
-                    }, index=[
-                        'Basic statistics',
-                        'Correlation column correlations',
-                        'Mean Correlation between fake and real columns',
-                        '1 - MAPE Estimator results',
-                        '1 - MAPE 5 PCA components',
-                        'Similarity Score'
-                    ])
-                    st.dataframe(metrics_df)
-
-                    # Add visual evaluation plots
+                    # Add visual evaluation
                     st.subheader("Visual Evaluation")
                     try:
                         evaluator.generate_evaluation_plots()

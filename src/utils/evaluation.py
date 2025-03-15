@@ -7,7 +7,6 @@ from scipy import stats
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import wasserstein_distance
 import matplotlib.pyplot as plt
-from .table_evaluator_adapter import TableEvaluatorAdapter
 
 class DataEvaluator:
     """Evaluates quality of synthetic data compared to real data"""
@@ -40,21 +39,28 @@ class DataEvaluator:
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
 
-        # Initialize table-evaluator adapter
-        self._table_evaluator = TableEvaluatorAdapter(
-            real_data=self.real_data,
-            synthetic_data=self.synthetic_data
-        )
+        # Initialize table-evaluator adapter lazily to avoid circular imports
+        self._table_evaluator = None
 
         print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
 
+    def _get_evaluator(self):
+        """Lazy initialization of table evaluator adapter"""
+        if self._table_evaluator is None:
+            from .table_evaluator_adapter import TableEvaluatorAdapter
+            self._table_evaluator = TableEvaluatorAdapter(
+                real_data=self.real_data,
+                synthetic_data=self.synthetic_data
+            )
+        return self._table_evaluator
+
     def evaluate(self, target_col: str) -> dict:
         """Run comprehensive evaluation using table-evaluator"""
-        return self._table_evaluator.evaluate_all(target_col)
+        return self._get_evaluator().evaluate_all(target_col)
 
     def generate_evaluation_plots(self):
         """Generate visual evaluation plots using table-evaluator"""
-        return self._table_evaluator.get_visual_evaluation()
+        return self._get_evaluator().get_visual_evaluation()
 
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
