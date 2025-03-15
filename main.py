@@ -16,6 +16,10 @@ except ImportError as e:
 try:
     import numpy as np
     print("Successfully imported numpy version:", np.__version__)
+    # Add compatibility layer for scipy.interp
+    if not hasattr(scipy, "interp"):
+        print("Adding compatibility layer for scipy.interp")
+        scipy.interp = np.interp
 except ImportError as e:
     print("Failed to import numpy:", str(e))
 
