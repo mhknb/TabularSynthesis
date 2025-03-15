@@ -538,45 +538,68 @@ def main():
 
                 # ML utility evaluation
                 with st.expander("ML Utility Evaluation"):
+                    # First run comprehensive evaluation
+                    evaluation_results = evaluator.evaluate_all(target_column=target_col)
+
+                    # Display classifier scores
+                    st.subheader("Classifier Performance Comparison")
+                    if evaluation_results['classifier_scores'] is not None:
+                        st.write("F1-scores and Jaccard similarities:")
+                        st.dataframe(evaluation_results['classifier_scores'])
+                    else:
+                        st.warning("Could not calculate classifier scores.")
+
+                    # Display privacy metrics
+                    st.subheader("Privacy Analysis")
+                    if evaluation_results['privacy'] is not None:
+                        privacy_metrics = evaluation_results['privacy']
+                        st.write("Duplicate Analysis:")
+                        st.write(f"- Real data duplicates: {privacy_metrics['Duplicate rows between sets (real/fake)'][0]}")
+                        st.write(f"- Synthetic data duplicates: {privacy_metrics['Duplicate rows between sets (real/fake)'][1]}")
+                        st.write("\nNearest Neighbor Analysis:")
+                        st.write(f"- Mean distance: {privacy_metrics['nearest neighbor mean']:.4f}")
+                        st.write(f"- Standard deviation: {privacy_metrics['nearest neighbor std']:.4f}")
+                    else:
+                        st.warning("Could not calculate privacy metrics.")
+
+                    # Display correlation metrics
+                    st.subheader("Correlation Analysis")
+                    if evaluation_results['correlation'] is not None:
+                        correlation_metrics = evaluation_results['correlation']
+                        st.write("Column Correlation Distance Metrics:")
+                        st.write(f"- RMSE: {correlation_metrics['Column Correlation Distance RMSE']:.4f}")
+                        st.write(f"- MAE: {correlation_metrics['Column Correlation distance MAE']:.4f}")
+                    else:
+                        st.warning("Could not calculate correlation metrics.")
+
+                    # Original ML utility metrics
+                    st.subheader("Model Performance")
                     ml_metrics = evaluator.evaluate_ml_utility(
                         target_column=target_col,
                         task_type=task_type
                     )
-                    st.write("ML Utility Evaluation Results:")
 
                     # Real model (baseline) results
-                    st.subheader("Real Data Model (Baseline)")
+                    st.write("Real Data Model (Baseline)")
                     baseline_metric = next((key for key in ml_metrics.keys() if key.startswith('real_model_')), None)
                     if baseline_metric:
                         st.write(f"Performance: {ml_metrics[baseline_metric]:.4f}")
-                    else:
-                        st.warning("No baseline metrics found.")
-
 
                     # TSTR results
-                    st.subheader("Synthetic Data Model (TSTR)")
+                    st.write("Synthetic Data Model (TSTR)")
                     synthetic_metric = next((key for key in ml_metrics.keys() if key.startswith('synthetic_model_')), None)
                     if synthetic_metric:
                         st.write(f"Performance: {ml_metrics[synthetic_metric]:.4f}")
                         if 'synthetic_relative_performance' in ml_metrics:
                             st.write(f"Relative to baseline: {ml_metrics['synthetic_relative_performance']:.1f}%")
-                        else:
-                            st.warning("Relative performance to baseline not calculated.")
-                    else:
-                        st.warning("No synthetic model metrics found.")
 
                     # Combined training results
-                    st.subheader("Combined Data Model (Real + Synthetic)")
+                    st.write("Combined Data Model (Real + Synthetic)")
                     combined_metric = next((key for key in ml_metrics.keys() if key.startswith('combined_model_')), None)
                     if combined_metric:
                         st.write(f"Performance: {ml_metrics[combined_metric]:.4f}")
                         if 'combined_relative_performance' in ml_metrics:
                             st.write(f"Relative to baseline: {ml_metrics['combined_relative_performance']:.1f}%")
-                        else:
-                            st.warning("Relative performance to baseline not calculated.")
-                    else:
-                        st.warning("No combined model metrics found.")
-
 
 
                 # Display results

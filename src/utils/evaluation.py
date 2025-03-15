@@ -1,13 +1,16 @@
 import numpy as np
 import pandas as pd
 from scipy import stats
-from scipy.spatial.distance import jensenshannon
+from scipy.spatial.distance import jensenshannon, cdist
 from scipy.stats import wasserstein_distance
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
+from sklearn.metrics import accuracy_score, f1_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
 import seaborn as sns
 
 class DataEvaluator:
@@ -16,6 +19,8 @@ class DataEvaluator:
     def __init__(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame):
         """Initialize with real and synthetic datasets"""
         print("\nDEBUG - DataEvaluator initialization:")
+        print(f"Real data shape: {real_data.shape}")
+        print(f"Synthetic data shape: {synthetic_data.shape}")
         print(f"Real data columns: {real_data.columns.tolist()}")
         print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
 
@@ -25,24 +30,20 @@ class DataEvaluator:
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
-        
+
         # Handle the case when no common columns exist
         if not common_cols:
-            print("WARNING: No common columns found between real and synthetic data!")
-            # Add dummy column to allow initialization but prevent meaningful evaluation
-            self.real_data['_dummy'] = 0
-            self.synthetic_data['_dummy'] = 0
-            common_cols = ['_dummy']
-            
+            raise ValueError("No common columns found between real and synthetic data!")
+
         # Only use columns that exist in both datasets
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
-        
+
         # Fill missing values to prevent NoneType comparison errors
         self.real_data = self.real_data.fillna(0)
         self.synthetic_data = self.synthetic_data.fillna(0)
 
-        print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
+        print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
 
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
@@ -167,6 +168,39 @@ class DataEvaluator:
         print(f"Output columns: {result_df.columns.tolist()}")
 
         return result_df, scalers, encoders
+
+    def get_duplicate_count(self):
+        """Count duplicate rows between real and synthetic data"""
+        real_duplicates = len(self.real_data[self.real_data.duplicated()])
+        synth_duplicates = len(self.synthetic_data[self.synthetic_data.duplicated()])
+        return real_duplicates, synth_duplicates
+
+    def nearest_neighbor_analysis(self, max_samples=20000):
+        """Calculate nearest neighbor distances between real and synthetic data"""
+        # Limit analysis to avoid memory issues
+        real_sample = self.real_data.sample(n=min(len(self.real_data), max_samples))
+        synth_sample = self.synthetic_data.sample(n=min(len(self.synthetic_data), max_samples))
+
+        # Calculate distances
+        distances = cdist(real_sample, synth_sample, metric='euclidean')
+        min_distances = distances.min(axis=1)
+
+        return float(min_distances.mean()), float(min_distances.std())
+
+    def calculate_correlation_distance(self):
+        """Calculate correlation matrix distance metrics"""
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        if len(numerical_cols) < 2:
+            return 0.0, 0.0
+
+        real_corr = self.real_data[numerical_cols].corr().fillna(0)
+        synth_corr = self.synthetic_data[numerical_cols].corr().fillna(0)
+
+        rmse = np.sqrt(((real_corr - synth_corr) ** 2).mean().mean())
+        mae = np.abs(real_corr - synth_corr).mean().mean()
+
+        return rmse, mae
+
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
         """Evaluate ML utility using both TSTR and combined training methodologies"""
@@ -385,37 +419,116 @@ class DataEvaluator:
             divergence_metrics[f'{col}_wasserstein'] = wd
         return divergence_metrics
 
-    def evaluate_all(self, target_column=None, task_type='classification'):
+    def evaluate_classifiers(self, target_col: str, test_size: float = 0.2):
+        """Evaluate multiple classifiers on both real and synthetic data"""
+        # Prepare features and target
+        feature_cols = [col for col in self.real_data.columns if col != target_col]
+        X = self.real_data[feature_cols]
+        y = self.real_data[target_col]
+        X_synth = self.synthetic_data[feature_cols]
+        y_synth = self.synthetic_data[target_col]
+
+        # Split real data
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+
+        # Initialize classifiers
+        classifiers = {
+            'DecisionTreeClassifier': DecisionTreeClassifier(random_state=42),
+            'LogisticRegression': LogisticRegression(random_state=42),
+            'MLPClassifier': MLPClassifier(random_state=42, max_iter=500),
+            'RandomForestClassifier': RandomForestClassifier(random_state=42)
+        }
+
+        results = []
+        for name, clf in classifiers.items():
+            # Train on real, predict on real test
+            clf_real = clf.__class__(**clf.get_params())
+            clf_real.fit(X_train, y_train)
+            real_pred = clf_real.predict(X_test)
+            f1_real = f1_score(y_test, real_pred, average='weighted')
+
+            # Train on synthetic, predict on real test
+            clf_fake = clf.__class__(**clf.get_params())
+            clf_fake.fit(X_synth, y_synth)
+            fake_pred = clf_fake.predict(X_test)
+            f1_fake = f1_score(y_test, fake_pred, average='weighted')
+
+            # Calculate Jaccard similarity
+            jaccard = len(set(real_pred) & set(fake_pred)) / len(set(real_pred) | set(fake_pred)) if len(set(real_pred) | set(fake_pred)) >0 else 0
+
+            results.append({
+                'index': f"{name}_real",
+                'f1_real': f1_real,
+                'f1_fake': f1_fake,
+                'jaccard_similarity': jaccard
+            })
+
+            results.append({
+                'index': f"{name}_fake",
+                'f1_real': f1_real,
+                'f1_fake': f1_fake,
+                'jaccard_similarity': jaccard
+            })
+
+        return pd.DataFrame(results).set_index('index')
+
+    def evaluate_all(self, target_col: str) -> dict:
         """Run all evaluations and return combined results"""
         results = {}
 
+        # Classifier evaluation
+        try:
+            results['classifier_scores'] = self.evaluate_classifiers(target_col)
+        except Exception as e:
+            print(f"Error in classifier evaluation: {str(e)}")
+            results['classifier_scores'] = None
+
+        # Privacy metrics
+        try:
+            real_dupes, synth_dupes = self.get_duplicate_count()
+            nn_mean, nn_std = self.nearest_neighbor_analysis()
+            results['privacy'] = {
+                'Duplicate rows between sets (real/fake)': (real_dupes, synth_dupes),
+                'nearest neighbor mean': nn_mean,
+                'nearest neighbor std': nn_std
+            }
+        except Exception as e:
+            print(f"Error in privacy metrics: {str(e)}")
+            results['privacy'] = None
+
+        # Correlation metrics
+        try:
+            rmse, mae = self.calculate_correlation_distance()
+            results['correlation'] = {
+                'Column Correlation Distance RMSE': rmse,
+                'Column Correlation distance MAE': mae
+            }
+        except Exception as e:
+            print(f"Error in correlation metrics: {str(e)}")
+            results['correlation'] = None
+
+        #Statistical Similarity
         try:
             results['statistical_similarity'] = self.statistical_similarity()
         except Exception as e:
             results['statistical_similarity'] = f"Error: {str(e)}"
 
+        #Correlation Similarity
         try:
             results['correlation_similarity'] = self.correlation_similarity()
         except Exception as e:
             results['correlation_similarity'] = f"Error: {str(e)}"
 
+        #Column Statistics
         try:
             results['column_statistics'] = self.column_statistics()
         except Exception as e:
             results['column_statistics'] = f"Error: {str(e)}"
 
+        #Distribution Divergence
         try:
             results['divergence_metrics'] = self.calculate_distribution_divergence()
         except Exception as e:
             results['divergence_metrics'] = f"Error: {str(e)}"
-
-        if target_column:
-            if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
-                try:
-                    results['ml_utility'] = self.evaluate_ml_utility(target_column, task_type)
-                except Exception as e:
-                    results['ml_utility'] = f"Error: {str(e)}"
-            else:
-                results['ml_utility'] = "Target column not found in both datasets"
 
         return results
