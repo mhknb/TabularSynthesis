@@ -65,7 +65,7 @@ def transformation_selector(column_types: dict):
         elif col_type == 'Categorical':
             transformations[col] = st.selectbox(
                 f"Encoding method for '{col}'",
-                options=['onehot', 'label'],  # Changed order to make 'onehot' the default
+                options=['binary', 'onehot', 'label'],
                 key=f"transform_{col}"
             )
 

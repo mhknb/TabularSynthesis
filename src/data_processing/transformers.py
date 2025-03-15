@@ -74,7 +74,7 @@ class DataTransformer:
         transformed_data = scaler.fit_transform(shaped_data).flatten()
         return pd.Series(transformed_data, name=data.name)
 
-    def transform_categorical(self, data: pd.Series, method: str = 'label') -> pd.Series:
+    def transform_categorical(self, data: pd.Series, method: str = 'binary') -> pd.Series:
         """Transform categorical data using specified method with missing value handling"""
         # Create missing value flag if needed
         has_missing = data.isnull().any()
@@ -91,7 +91,27 @@ class DataTransformer:
         else:
             data_for_transform = data
             
-        if method == 'label':
+        if method == 'binary':
+            # Binary encoding
+            unique_values = data_for_transform.unique()
+            n_values = len(unique_values)
+            n_bits = int(np.ceil(np.log2(n_values)))
+            value_to_binary = {val: format(i, f'0{n_bits}b') for i, val in enumerate(unique_values)}
+            
+            # Store encoding information
+            self.encoding_maps[data.name] = {
+                'method': 'binary',
+                'value_to_binary': value_to_binary,
+                'n_bits': n_bits,
+                'has_missing': has_missing
+            }
+            
+            # Transform to binary string then to integer
+            binary_str = data_for_transform.map(value_to_binary)
+            transformed = pd.Series(binary_str.map(lambda x: int(x, 2)), name=data.name)
+            return transformed
+            
+        elif method == 'label':
             encoder = LabelEncoder()
             self.encoders[data.name] = encoder
             transformed = pd.Series(encoder.fit_transform(data_for_transform), name=data.name)
