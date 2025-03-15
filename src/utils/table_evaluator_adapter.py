@@ -3,6 +3,7 @@ Adapter module for integrating table-evaluator functionality
 """
 from typing import Dict, Any, Optional, List
 import pandas as pd
+import numpy as np
 from table_evaluator import TableEvaluator
 
 class TableEvaluatorAdapter:
@@ -20,12 +21,30 @@ class TableEvaluatorAdapter:
         print("\nDEBUG - TableEvaluatorAdapter initialization:")
         print(f"Real data shape: {real_data.shape}")
         print(f"Synthetic data shape: {synthetic_data.shape}")
+        print(f"Real data columns: {real_data.columns.tolist()}")
+        print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
 
         self.real_data = real_data.copy()
         self.synthetic_data = synthetic_data.copy()
         self.cat_cols = cat_cols or self._infer_categorical_columns()
 
         print(f"Categorical columns: {self.cat_cols}")
+
+        # Print data types for debugging
+        print("\nDEBUG - Data types before preprocessing:")
+        print("Real data types:")
+        print(self.real_data.dtypes)
+        print("\nSynthetic data types:")
+        print(self.synthetic_data.dtypes)
+
+        # Preprocess data
+        self._preprocess_data()
+
+        print("\nDEBUG - Data types after preprocessing:")
+        print("Real data types:")
+        print(self.real_data.dtypes)
+        print("\nSynthetic data types:")
+        print(self.synthetic_data.dtypes)
 
         try:
             self.evaluator = TableEvaluator(
@@ -36,18 +55,66 @@ class TableEvaluatorAdapter:
             print("TableEvaluator initialized successfully")
         except Exception as e:
             print(f"Error initializing TableEvaluator: {str(e)}")
+            print("Real data sample:")
+            print(self.real_data.head())
+            print("\nSynthetic data sample:")
+            print(self.synthetic_data.head())
             raise
+
+    def _preprocess_data(self):
+        """Preprocess data to ensure compatible types"""
+        # Handle numeric columns
+        numeric_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        for col in numeric_cols:
+            if col not in self.cat_cols:
+                # Convert to float64 for consistency
+                self.real_data[col] = pd.to_numeric(self.real_data[col], errors='coerce').astype('float64')
+                self.synthetic_data[col] = pd.to_numeric(self.synthetic_data[col], errors='coerce').astype('float64')
+
+        # Handle categorical columns
+        for col in self.cat_cols:
+            # Convert to string category
+            self.real_data[col] = self.real_data[col].astype(str).astype('category')
+            self.synthetic_data[col] = self.synthetic_data[col].astype(str).astype('category')
+
+        # Handle datetime columns
+        datetime_cols = self.real_data.select_dtypes(include=['datetime64']).columns
+        for col in datetime_cols:
+            # Convert datetime to numeric timestamp
+            self.real_data[col] = pd.to_datetime(self.real_data[col]).astype(np.int64) // 10**9
+            self.synthetic_data[col] = pd.to_datetime(self.synthetic_data[col]).astype(np.int64) // 10**9
+
+        # Handle object columns that aren't categorical
+        object_cols = self.real_data.select_dtypes(include=['object']).columns
+        for col in object_cols:
+            if col not in self.cat_cols:
+                # Try to convert to numeric, if not possible make categorical
+                try:
+                    self.real_data[col] = pd.to_numeric(self.real_data[col], errors='coerce')
+                    self.synthetic_data[col] = pd.to_numeric(self.synthetic_data[col], errors='coerce')
+                except:
+                    print(f"Converting column {col} to categorical")
+                    self.cat_cols.append(col)
+                    self.real_data[col] = self.real_data[col].astype(str).astype('category')
+                    self.synthetic_data[col] = self.synthetic_data[col].astype(str).astype('category')
+
+        # Fill any remaining NaN values
+        self.real_data = self.real_data.fillna(0)
+        self.synthetic_data = self.synthetic_data.fillna(0)
 
     def _infer_categorical_columns(self) -> List[str]:
         """Infer categorical columns based on number of unique values"""
         categorical_columns = []
         for col in self.real_data.columns:
+            # Check if column is already categorical or object type
             if col in self.real_data.select_dtypes(include=['object', 'category']).columns:
                 categorical_columns.append(col)
             else:
                 n_unique = self.real_data[col].nunique()
                 if n_unique < 50:  # Consider columns with less than 50 unique values as categorical
                     categorical_columns.append(col)
+
+        print(f"Inferred categorical columns: {categorical_columns}")
         return categorical_columns
 
     def evaluate_all(self, target_col: str) -> Dict[str, Any]:
@@ -63,6 +130,10 @@ class TableEvaluatorAdapter:
         try:
             print("\nDEBUG - Running table-evaluator evaluation")
             print(f"Target column: {target_col}")
+
+            # Verify target column exists and check its type
+            print(f"Target column type in real data: {self.real_data[target_col].dtype}")
+            print(f"Target column type in synthetic data: {self.synthetic_data[target_col].dtype}")
 
             # Get evaluation results
             ml_scores = self.evaluator.evaluate(target_col=target_col)
@@ -90,6 +161,9 @@ class TableEvaluatorAdapter:
             }
         except Exception as e:
             print(f"Error in evaluation: {str(e)}")
+            print("Detailed error context:")
+            import traceback
+            traceback.print_exc()
             raise
 
     def get_visual_evaluation(self):
