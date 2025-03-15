@@ -526,23 +526,15 @@ def main():
 
                 # Evaluate synthetic data
                 st.subheader("Data Quality Evaluation")
-                evaluator = DataEvaluator(df, result_df)
 
-                # Statistical tests
-                with st.expander("Statistical Similarity Tests"):
-                    stats = evaluator.statistical_similarity()
-                    for col, values in stats.items():
-                        st.write(f"{col}: {values:.4f}")
+                # Filter both dataframes to only include selected columns
+                eval_real_df = df[selected_columns].copy()
+                eval_synthetic_df = result_df[selected_columns].copy()
 
-                # Correlation similarity
-                with st.expander("Correlation Matrix Similarity"):
-                    corr_sim = evaluator.correlation_similarity()
-                    st.write(f"Correlation Similarity Score: {corr_sim:.4f}")
+                st.write("Real data shape:", eval_real_df.shape)
+                st.write("Synthetic data shape:", eval_synthetic_df.shape)
 
-                # Column statistics
-                with st.expander("Column-wise Statistics Comparison"):
-                    col_stats = evaluator.column_statistics()
-                    st.dataframe(col_stats)
+                evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
                 # ML utility evaluation
                 with st.expander("ML Utility Evaluation (TSTR)"):
@@ -553,32 +545,6 @@ def main():
                     st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
                     for metric, value in ml_metrics.items():
                         st.write(f"{metric}: {value:.4f}")
-
-                # Distribution plots
-                with st.expander("Distribution Comparisons"):
-                    st.subheader("Cumulative Distribution Plots")
-                    fig_cumulative = evaluator.plot_cumulative_distributions()
-                    if fig_cumulative:
-                        st.pyplot(fig_cumulative)
-
-                    st.subheader("Density Distribution Plots")
-                    fig_density = evaluator.plot_distributions()
-                    st.pyplot(fig_density)
-
-                # Add new divergence metrics section
-                with st.expander("Distribution Divergence Metrics"):
-                    metrics = evaluator.evaluate_all(target_column=target_col, task_type=task_type)
-                    st.subheader("Jensen-Shannon Divergence (JSD)")
-                    st.write("JSD measures the similarity between probability distributions (0 = identical, 1 = completely different)")
-                    for col, value in metrics['divergence_metrics'].items():
-                        if 'jsd' in col:
-                            st.write(f"{col.replace('_jsd', '')}: {value:.4f}")
-
-                    st.subheader("Wasserstein Distance (WD)")
-                    st.write("WD measures the minimum 'cost' of transforming one distribution into another")
-                    for col, value in metrics['divergence_metrics'].items():
-                        if 'wasserstein' in col:
-                            st.write(f"{col.replace('_wasserstein', '')}: {value:.4f}")
 
                 # Display results
                 st.success("Synthetic data generated successfully!")
