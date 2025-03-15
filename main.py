@@ -25,6 +25,7 @@ from src.utils.evaluation import DataEvaluator
 from src.ui import components
 from sklearn.model_selection import train_test_split
 from bayes_opt import BayesianOptimization
+import matplotlib.pyplot as plt #added for plot closing
 
 # Initialize event loop for async operations
 try:
@@ -528,48 +529,46 @@ def main():
                 # Evaluate synthetic data
                 st.subheader("Data Quality Evaluation")
 
-                # Filter both dataframes to only include selected columns
-                eval_real_df = df[selected_columns].copy()
-                eval_synthetic_df = result_df[selected_columns].copy()
+                # Display results with progress tracking
+                with st.spinner("Processing evaluation results..."):
+                    # Filter DataFrames to only include selected columns
+                    eval_real_df = df[selected_columns].copy()
+                    eval_synthetic_df = result_df[selected_columns].copy()
 
-                st.write("Real data shape:", eval_real_df.shape)
-                st.write("Synthetic data shape:", eval_synthetic_df.shape)
+                    st.write("Real data shape:", eval_real_df.shape)
+                    st.write("Synthetic data shape:", eval_synthetic_df.shape)
 
-                evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
-                evaluation_results = evaluator.evaluate() # Added to get evaluation results
+                    evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
-                # ML utility evaluation
-                with st.expander("ML Utility Evaluation (TSTR)"):
-                    ml_metrics = evaluator.evaluate_ml_utility(
-                        target_column=target_col,
-                        task_type=task_type
-                    )
-                    st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
-                    for metric, value in ml_metrics.items():
-                        st.write(f"{metric}: {value:.4f}")
+                    # ML utility evaluation
+                    with st.expander("ML Utility Evaluation (TSTR)"):
+                        ml_metrics = evaluator.evaluate_ml_utility(
+                            target_column=target_col,
+                            task_type=task_type
+                        )
+                        st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
+                        for metric, value in ml_metrics.items():
+                            st.write(f"{metric}: {value:.4f}")
 
-                # Display comprehensive evaluation results
-                st.subheader("Evaluation Results")
+                    # Display evaluation results in chunks
+                    st.subheader("Data Distribution Analysis")
+                    with st.spinner("Generating distribution plots..."):
+                        plots = evaluator.generate_evaluation_plots()
 
-                # Add visual evaluation plots
-                st.subheader("Data Distribution Analysis")
+                        if plots:
+                            # Display mean-std plot
+                            st.write("Absolute Log Mean and STDs of numeric data")
+                            st.pyplot(plots[0])
+                            plt.close(plots[0])  # Clean up memory
 
-                # Mean and STD plots
-                st.write("Absolute Log Mean and STDs of numeric data")
-                try:
-                    plots = evaluation_results.get('plots', [])
-                    if plots and len(plots) >= 2:
-                        st.pyplot(plots[0])  # Mean-STD plot
+                            # Display cumulative sums plot
+                            st.write("Cumulative Sums per feature")
+                            st.pyplot(plots[1])
+                            plt.close(plots[1])  # Clean up memory
+                        else:
+                            st.warning("Could not generate distribution plots")
 
-                        st.write("Cumulative Sums per feature")
-                        st.pyplot(plots[1])  # Cumulative sums plot
-                    else:
-                        st.warning("Could not generate distribution plots")
-                except Exception as e:
-                    st.error(f"Error displaying plots: {str(e)}")
-
-
-                # Display results
+                # Display final results
                 st.success("Synthetic data generated successfully!")
                 st.subheader("Generated Data Preview")
                 st.dataframe(result_df.head())
@@ -582,6 +581,7 @@ def main():
                     file_name="synthetic_data.csv",
                     mime="text/csv"
                 )
+
             except Exception as e:
                 st.error(f"An error occurred during data generation: {str(e)}")
                 return

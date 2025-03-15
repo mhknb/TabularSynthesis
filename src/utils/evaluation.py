@@ -49,53 +49,10 @@ class DataEvaluator:
         try:
             print("\nGenerating evaluation results...")
 
-            # Create absolute log mean and STDs plot
-            fig_mean_std = plt.figure(figsize=(12, 6))
-            ax = fig_mean_std.add_subplot(111)
-
-            # Calculate means and stds
-            real_means = np.log(np.abs(self.real_data.mean()))
-            synth_means = np.log(np.abs(self.synthetic_data.mean()))
-            real_stds = np.log(self.real_data.std())
-            synth_stds = np.log(self.synthetic_data.std())
-
-            x = range(len(self.real_data.columns))
-            width = 0.35
-
-            # Plot bars
-            ax.bar([i - width/2 for i in x], real_means, width, label='Real Mean', color='blue', alpha=0.5)
-            ax.bar([i + width/2 for i in x], synth_means, width, label='Synthetic Mean', color='red', alpha=0.5)
-            ax.bar([i - width/2 for i in x], real_stds, width, bottom=real_means, label='Real Std', color='blue', alpha=0.3)
-            ax.bar([i + width/2 for i in x], synth_stds, width, bottom=synth_means, label='Synthetic Std', color='red', alpha=0.3)
-
-            ax.set_xticks(x)
-            ax.set_xticklabels(self.real_data.columns, rotation=45)
-            ax.set_title('Absolute Log Mean and STDs of numeric data')
-            ax.legend()
-
-            # Create cumulative sums plot
-            fig_cumsums = plt.figure(figsize=(15, 10))
-            nr_cols = min(4, len(self.real_data.columns))
-            nr_rows = (len(self.real_data.columns) - 1) // nr_cols + 1
-
-            for i, col in enumerate(self.real_data.columns):
-                ax = fig_cumsums.add_subplot(nr_rows, nr_cols, i + 1)
-
-                # Calculate CDFs
-                real_sorted = np.sort(self.real_data[col])
-                synth_sorted = np.sort(self.synthetic_data[col])
-                real_cdf = np.arange(1, len(real_sorted) + 1) / len(real_sorted)
-                synth_cdf = np.arange(1, len(synth_sorted) + 1) / len(synth_sorted)
-
-                # Plot CDFs
-                ax.plot(real_sorted, real_cdf, label='Real', color='blue')
-                ax.plot(synth_sorted, synth_cdf, label='Synthetic', color='red')
-                ax.set_title(col)
-                ax.set_xlabel('Value')
-                ax.set_ylabel('Cumulative Probability')
-                ax.legend()
-
-            plt.tight_layout()
+            # Generate plots using the new optimized function
+            plots = self.generate_evaluation_plots()
+            if plots is None:
+                return {'error': 'Plot generation failed'}
 
             # Get evaluation metrics
             stats_results = self.statistical_similarity()
@@ -103,7 +60,7 @@ class DataEvaluator:
             col_stats = self.column_statistics()
 
             return {
-                'plots': [fig_mean_std, fig_cumsums],
+                'plots': plots,
                 'statistics': stats_results,
                 'correlation': corr_sim,
                 'column_stats': col_stats
@@ -450,3 +407,74 @@ class DataEvaluator:
                 results['ml_utility'] = "Target column not found in both datasets"
 
         return results
+
+    def generate_evaluation_plots(self):
+        """Generate plots for evaluation with memory optimization"""
+        try:
+            print("\nGenerating evaluation plots...")
+            plots = []
+
+            # Generate mean-std plot
+            fig_mean_std = plt.figure(figsize=(12, 6))
+            ax = fig_mean_std.add_subplot(111)
+
+            # Calculate statistics
+            real_means = np.log(np.abs(self.real_data.mean() + 1e-10))  # Add small constant to avoid log(0)
+            synth_means = np.log(np.abs(self.synthetic_data.mean() + 1e-10))
+            real_stds = np.log(self.real_data.std() + 1e-10)
+            synth_stds = np.log(self.synthetic_data.std() + 1e-10)
+
+            x = range(len(self.real_data.columns))
+            width = 0.35
+
+            # Plot bars
+            ax.bar([i - width/2 for i in x], real_means, width, label='Real Mean', color='blue', alpha=0.5)
+            ax.bar([i + width/2 for i in x], synth_means, width, label='Synthetic Mean', color='red', alpha=0.5)
+            ax.bar([i - width/2 for i in x], real_stds, width, bottom=real_means, label='Real Std', color='blue', alpha=0.3)
+            ax.bar([i + width/2 for i in x], synth_stds, width, bottom=synth_means, label='Synthetic Std', color='red', alpha=0.3)
+
+            ax.set_xticks(x)
+            ax.set_xticklabels(self.real_data.columns, rotation=45, ha='right')
+            ax.set_title('Absolute Log Mean and STDs of numeric data')
+            ax.legend()
+            plt.tight_layout()
+            plots.append(fig_mean_std)
+
+            # Generate cumulative sums plot
+            fig_cumsums = plt.figure(figsize=(15, 10))
+            cols_per_row = min(4, len(self.real_data.columns))
+            rows = (len(self.real_data.columns) - 1) // cols_per_row + 1
+
+            for i, col in enumerate(self.real_data.columns):
+                ax = fig_cumsums.add_subplot(rows, cols_per_row, i + 1)
+
+                # Calculate CDFs efficiently
+                real_col = np.sort(self.real_data[col].values)
+                synth_col = np.sort(self.synthetic_data[col].values)
+
+                # Use fewer points for smoother plotting
+                n_points = min(1000, len(real_col))
+                indices = np.linspace(0, len(real_col)-1, n_points).astype(int)
+
+                real_cdf = np.arange(1, len(real_col) + 1) / len(real_col)
+                synth_cdf = np.arange(1, len(synth_col) + 1) / len(synth_col)
+
+                # Plot CDFs using subset of points
+                ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue')
+                ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red')
+
+                ax.set_title(col)
+                ax.set_xlabel('Value')
+                ax.set_ylabel('Cumulative Probability')
+                ax.legend()
+
+            plt.tight_layout()
+            plots.append(fig_cumsums)
+
+            return plots
+
+        except Exception as e:
+            print(f"Error generating evaluation plots: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
