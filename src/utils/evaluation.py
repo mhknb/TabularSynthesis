@@ -4,8 +4,8 @@ from scipy import stats
 from scipy.spatial.distance import jensenshannon, cdist
 from scipy.stats import wasserstein_distance
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import accuracy_score, f1_score, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.tree import DecisionTreeClassifier
@@ -127,10 +127,9 @@ class DataEvaluator:
         return fig
 
     def preprocess_features(self, X: pd.DataFrame, scalers=None, encoders=None):
-        """Preprocess features while preserving column names"""
+        """Preprocess features with proper scaling and encoding"""
         print("\nDEBUG - Feature preprocessing:")
         print(f"Input data shape: {X.shape}")
-        print(f"Input columns: {X.columns.tolist()}")
 
         # Create a copy to avoid modifying original data
         X = X.copy()
@@ -138,46 +137,38 @@ class DataEvaluator:
 
         # Initialize transformers if not provided
         if scalers is None:
-            print("Creating new scalers")
             scalers = {}
             is_training = True
         else:
-            print("Using existing scalers")
             is_training = False
 
         if encoders is None:
-            print("Creating new encoders")
             encoders = {}
 
-        # Process numerical columns
+        # Process numerical columns with MinMaxScaler for bounded range
         numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns
         for col in numerical_cols:
-            print(f"Processing numerical column: {col}")
             if col not in scalers and is_training:
-                scalers[col] = StandardScaler()
+                scalers[col] = MinMaxScaler()
 
             if is_training:
                 result_df[col] = scalers[col].fit_transform(X[[col]])
             else:
                 result_df[col] = scalers[col].transform(X[[col]])
 
-        # Process categorical columns
+        # Process categorical columns with robust encoding
         categorical_cols = X.select_dtypes(exclude=['int64', 'float64']).columns
         for col in categorical_cols:
-            print(f"Processing categorical column: {col}")
             if col not in encoders:
-                print(f"Creating new encoder for {col}")
                 encoder = LabelEncoder()
-                unique_values = list(X[col].unique()) + ['Other']
+                # Include 'Unknown' in possible categories
+                unique_values = list(set(X[col].unique()) | {'Unknown'})
                 encoder.fit(unique_values)
                 encoders[col] = encoder
 
-            # Map unseen categories to 'Other'
-            X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+            # Handle unseen categories
+            X[col] = X[col].map(lambda x: 'Unknown' if x not in encoders[col].classes_ else x)
             result_df[col] = encoders[col].transform(X[col])
-
-        print(f"Output data shape: {result_df.shape}")
-        print(f"Output columns: {result_df.columns.tolist()}")
 
         return result_df, scalers, encoders
 
@@ -484,10 +475,9 @@ class DataEvaluator:
         return divergence_metrics
 
     def evaluate_classifiers(self, target_col: str, test_size: float = 0.2):
-        """Evaluate multiple classifiers on both real and synthetic data"""
+        """Evaluate multiple classifiers with cross-validation"""
         try:
             print("\nDEBUG - Starting classifier evaluation")
-            print(f"Target column: {target_col}")
 
             # Prepare features and target
             feature_cols = [col for col in self.real_data.columns if col != target_col]
@@ -496,28 +486,15 @@ class DataEvaluator:
             X_synthetic = self.synthetic_data[feature_cols]
             y_synthetic = self.synthetic_data[target_col]
 
-            # Split real data
-            X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
-                X_real, y_real, test_size=test_size, random_state=42
-            )
-
             # Preprocess features
-            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
-            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
+            X_real_processed, scalers, encoders = self.preprocess_features(X_real)
             X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
 
             # Handle target variable
             target_encoder = LabelEncoder()
-            unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
-            target_encoder.fit(unique_vals)
-
-            y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
-            y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
-            y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
-
-            y_train_real = target_encoder.transform(y_train_real)
-            y_test_real = target_encoder.transform(y_test_real)
-            y_synthetic = target_encoder.transform(y_synthetic)
+            target_encoder.fit(pd.concat([y_real, y_synthetic]))
+            y_real_encoded = target_encoder.transform(y_real)
+            y_synthetic_encoded = target_encoder.transform(y_synthetic)
 
             # Initialize classifiers
             classifiers = {
@@ -527,41 +504,52 @@ class DataEvaluator:
                 'RandomForestClassifier': RandomForestClassifier(random_state=42)
             }
 
+            # Use stratified K-fold for better evaluation
+            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
             results = []
+
             for name, clf in classifiers.items():
                 print(f"\nEvaluating {name}")
-                try:
+                f1_real_scores = []
+                f1_synthetic_scores = []
+                jaccard_scores = []
+
+                for train_idx, test_idx in skf.split(X_real_processed, y_real_encoded):
                     # Train and evaluate on real data
+                    X_train, X_test = X_real_processed.iloc[train_idx], X_real_processed.iloc[test_idx]
+                    y_train, y_test = y_real_encoded[train_idx], y_real_encoded[test_idx]
+
                     clf_real = clf.__class__(**clf.get_params())
-                    clf_real.fit(X_train_processed, y_train_real)
-                    real_pred = clf_real.predict(X_test_processed)
-                    f1_real = f1_score(y_test_real, real_pred, average='weighted')
+                    clf_real.fit(X_train, y_train)
+                    real_pred = clf_real.predict(X_test)
+                    f1_real = f1_score(y_test, real_pred, average='weighted')
 
                     # Train on synthetic and evaluate on real test
                     clf_synthetic = clf.__class__(**clf.get_params())
-                    clf_synthetic.fit(X_synthetic_processed, y_synthetic)
-                    synthetic_pred = clf_synthetic.predict(X_test_processed)
-                    f1_synthetic = f1_score(y_test_real, synthetic_pred, average='weighted')
+                    clf_synthetic.fit(X_synthetic_processed, y_synthetic_encoded)
+                    synthetic_pred = clf_synthetic.predict(X_test)
+                    f1_synthetic = f1_score(y_test, synthetic_pred, average='weighted')
 
-                    # Calculate Jaccard similarity between predictions
-                    jaccard = len(set(real_pred) & set(synthetic_pred)) / len(set(real_pred) | set(synthetic_pred)) if len(set(real_pred) | set(synthetic_pred)) >0 else 0
+                    # Calculate Jaccard similarity
+                    jaccard = len(set(real_pred) & set(synthetic_pred)) / len(set(real_pred) | set(synthetic_pred))
 
-                    print(f"{name} scores - Real: {f1_real:.4f}, Synthetic: {f1_synthetic:.4f}, Jaccard: {jaccard:.4f}")
+                    f1_real_scores.append(f1_real)
+                    f1_synthetic_scores.append(f1_synthetic)
+                    jaccard_scores.append(jaccard)
 
-                    # Only add one row per classifier with both scores
-                    results.append({
-                        'index': name,
-                        'f1_real': f1_real,
-                        'f1_fake': f1_synthetic,
-                        'jaccard_similarity': jaccard
-                    })
+                # Average scores across folds
+                avg_f1_real = np.mean(f1_real_scores)
+                avg_f1_synthetic = np.mean(f1_synthetic_scores)
+                avg_jaccard = np.mean(jaccard_scores)
 
-                except Exception as e:
-                    print(f"Error evaluating {name}: {str(e)}")
-                    continue
+                print(f"{name} scores - Real: {avg_f1_real:.4f}, Synthetic: {avg_f1_synthetic:.4f}, Jaccard: {avg_jaccard:.4f}")
 
-            if not results:
-                raise ValueError("No classifier evaluations completed successfully")
+                results.append({
+                    'index': name,
+                    'f1_real': avg_f1_real,
+                    'f1_fake': avg_f1_synthetic,
+                    'jaccard_similarity': avg_jaccard
+                })
 
             return pd.DataFrame(results).set_index('index')
 
@@ -574,8 +562,8 @@ class DataEvaluator:
         print("\nDEBUG - Starting comprehensive evaluation")
         results = {}
 
+        # Classifier evaluation
         try:
-            # Classifier evaluation
             print("\nRunning classifier evaluation...")
             results['classifier_scores'] = self.evaluate_classifiers(target_col)
             print("Classifier evaluation completed successfully")
@@ -583,8 +571,8 @@ class DataEvaluator:
             print(f"Error in classifier evaluation: {str(e)}")
             results['classifier_scores'] = None
 
+        # Privacy metrics
         try:
-            # Privacy metrics
             print("\nCalculating privacy metrics...")
             real_dupes, synth_dupes = self.get_duplicate_count()
             nn_mean, nn_std = self.nearest_neighbor_analysis()
@@ -599,8 +587,8 @@ class DataEvaluator:
             print(f"Error in privacy metrics: {str(e)}")
             results['privacy'] = None
 
+        # Correlation metrics
         try:
-            # Correlation metrics
             print("\nCalculating correlation metrics...")
             rmse, mae = self.calculate_correlation_distance()
             results['correlation'] = {
@@ -612,8 +600,8 @@ class DataEvaluator:
             print(f"Error in correlation metrics: {str(e)}")
             results['correlation'] = None
 
+        # Similarity metrics
         try:
-            # Additional similarity metrics
             print("\nCalculating similarity metrics...")
             results['similarity'] = self.calculate_similarity_score()
             print("Similarity metrics calculated successfully")
@@ -625,44 +613,47 @@ class DataEvaluator:
         return results
 
     def calculate_basic_statistics(self) -> float:
-        """Calculate basic statistics similarity"""
+        """Calculate basic statistics similarity with robust normalization"""
         try:
             numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
             if len(numerical_cols) == 0:
-                return 1.0  # Return perfect score if no numerical columns
+                return 1.0
 
-            stats_real = self.real_data[numerical_cols].describe()
-            stats_synthetic = self.synthetic_data[numerical_cols].describe()
+            # Use robust statistics
+            stats_real = self.real_data[numerical_cols].agg(['mean', 'std', 'median', 'skew']).fillna(0)
+            stats_synthetic = self.synthetic_data[numerical_cols].agg(['mean', 'std', 'median', 'skew']).fillna(0)
 
-            # Compare means and stds
-            mean_diff = np.abs((stats_real.loc['mean'] - stats_synthetic.loc['mean']) / stats_real.loc['mean'].replace(0, np.nan).fillna(1e-10))
-            std_diff = np.abs((stats_real.loc['std'] - stats_synthetic.loc['std']) / stats_real.loc['std'].replace(0, np.nan).fillna(1e-10))
+            # Calculate normalized differences
+            diff_matrix = np.abs(stats_real - stats_synthetic)
+            max_vals = np.maximum(np.abs(stats_real), np.abs(stats_synthetic))
+            relative_diff = diff_matrix / (max_vals + 1e-10)  # Add small constant for numerical stability
 
-            # Calculate similarity score (1 - average difference)
-            mean_similarity = 1 - mean_diff.mean()
-            std_similarity = 1 - std_diff.mean()
+            # Calculate similarity score
+            similarity = 1 - np.mean(relative_diff)
+            return float(max(0.0, min(1.0, similarity)))
 
-            return (mean_similarity + std_similarity) / 2
         except Exception as e:
             print(f"Error in basic statistics calculation: {str(e)}")
             return 0.0
 
     def calculate_column_correlations(self) -> float:
-        """Calculate correlation matrix similarity"""
+        """Calculate correlation matrix similarity with numerical stability"""
         try:
             numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
             if len(numerical_cols) < 2:
-                return 1.0  # Return perfect score if not enough numerical columns
+                return 1.0
 
+            # Calculate correlations with handling for constant columns
             real_corr = self.real_data[numerical_cols].corr().fillna(0)
             synth_corr = self.synthetic_data[numerical_cols].corr().fillna(0)
 
-            # Calculate correlation similarity
-            correlation_distance = np.linalg.norm(real_corr - synth_corr)
-            max_possible_distance = np.sqrt(2 * len(numerical_cols))  # Maximum possible Frobenius norm
-            correlation_similarity = 1 - (correlation_distance / max_possible_distance)
+            # Use Frobenius norm for comparison
+            diff_norm = np.linalg.norm(real_corr - synth_corr)
+            max_norm = np.sqrt(4 * len(numerical_cols) * len(numerical_cols))  # Maximum possible difference
 
-            return max(0.0, min(1.0, correlation_similarity))
+            similarity = 1 - (diff_norm / max_norm)
+            return float(max(0.0, min(1.0, similarity)))
+
         except Exception as e:
             print(f"Error in correlation calculation: {str(e)}")
             return 0.0
@@ -676,85 +667,155 @@ class DataEvaluator:
 
             correlations = []
             for col in numerical_cols:
-                corr = np.corrcoef(self.real_data[col], self.synthetic_data[col])[0, 1]
-                if not np.isnan(corr):
-                    correlations.append(abs(corr))
+                if self.real_data[col].std() > 0 and self.synthetic_data[col].std() > 0:
+                    corr = np.corrcoef(self.real_data[col], self.synthetic_data[col])[0, 1]
+                    if not np.isnan(corr):
+                        correlations.append(abs(corr))
 
-            return np.mean(correlations) if correlations else 0.0
+            return float(np.mean(correlations) if correlations else 0.0)
+
         except Exception as e:
             print(f"Error in mean correlation calculation: {str(e)}")
             return 0.0
 
     def calculate_mape_estimator(self) -> float:
-        """Calculate 1 - MAPE for numerical columns"""
+        """Calculate 1 - MAPE with proper scaling"""
         try:
             numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
             if len(numerical_cols) == 0:
                 return 1.0
 
-            mapes = []
-            for col in numerical_cols:
-                real_values = self.real_data[col].values
-                synth_values = self.synthetic_data[col].values
+            # Scale data to [0,1] range for fair comparison
+            scaler = MinMaxScaler()
+            real_scaled = scaler.fit_transform(self.real_data[numerical_cols])
+            synthetic_scaled = scaler.transform(self.synthetic_data[numerical_cols])
 
-                # Calculate MAPE avoiding division by zero
-                denominator = np.abs(real_values)
-                mask = denominator != 0
-                if mask.any():
-                    mape = np.mean(np.abs((real_values[mask] - synth_values[mask]) / denominator[mask]))
-                    mapes.append(mape)
+            # Calculate MAPE with handling for zero values
+            mape = np.mean(np.abs((real_scaled - synthetic_scaled) / (real_scaled + 1e-10)))
+            return float(max(0.0, min(1.0, 1 - mape)))
 
-            return 1 - np.mean(mapes) if mapes else 0.0
         except Exception as e:
             print(f"Error in MAPE calculation: {str(e)}")
             return 0.0
 
     def calculate_pca_similarity(self, n_components: int = 5) -> float:
-        """Calculate similarity using PCA components"""
+        """Calculate similarity using PCA components with proper scaling"""
         try:
             numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
             if len(numerical_cols) < n_components:
                 return 1.0
 
             # Standardize the data
-            real_data_std = StandardScaler().fit_transform(self.real_data[numerical_cols])
-            synth_data_std = StandardScaler().fit_transform(self.synthetic_data[numerical_cols])
+            scaler = StandardScaler()
+            real_scaled = scaler.fit_transform(self.real_data[numerical_cols])
+            synthetic_scaled = scaler.transform(self.synthetic_data[numerical_cols])
 
-            # Fit PCA on real data
-            pca_real = PCA(n_components=n_components)
-            pca_synth = PCA(n_components=n_components)
+            # Fit PCA
+            pca = PCA(n_components=n_components)
+            real_pca = pca.fit_transform(real_scaled)
+            synthetic_pca = pca.transform(synthetic_scaled)
 
-            # Get explained variance ratios
-            real_ratios = pca_real.fit(real_data_std).explained_variance_ratio_
-            synth_ratios = pca_synth.fit(synth_data_std).explained_variance_ratio_
+            # Compare explained variance ratios
+            real_var = np.var(real_pca, axis=0)
+            synthetic_var = np.var(synthetic_pca, axis=0)
 
-            # Calculate similarity as 1 - MAPE of explained variance ratios
-            mape = np.mean(np.abs(real_ratios - synth_ratios) / real_ratios)
-            return 1 - mape
+            # Calculate normalized difference
+            var_diff = np.abs(real_var - synthetic_var) / (real_var + 1e-10)
+            similarity = 1 - np.mean(var_diff)
+
+            return float(max(0.0, min(1.0, similarity)))
+
         except Exception as e:
             print(f"Error in PCA similarity calculation: {str(e)}")
             return 0.0
 
     def calculate_similarity_score(self) -> dict:
         """Calculate overall similarity metrics"""
-        results = {
-            'basic statistics': self.calculate_basic_statistics(),
-            'Correlation column correlations': self.calculate_column_correlations(),
-            'Mean Correlation between fake and real columns': self.calculate_mean_correlation(),
-            '1 - MAPE Estimator results': self.calculate_mape_estimator(),
-            '1 - MAPE 5 PCA components': self.calculate_pca_similarity(),
-        }
+        print("\nCalculating similarity metrics...")
 
-        # Calculate overall similarity score as weighted average
-        weights = {
-            'basic statistics': 0.3,
-            'Correlation column correlations': 0.2,
-            'Mean Correlation between fake and real columns': 0.2,
-            '1 - MAPE Estimator results': 0.15,
-            '1 - MAPE 5 PCA components': 0.15
-        }
+        try:
+            metrics = {
+                'basic statistics': self.calculate_basic_statistics(),
+                'Correlation column correlations': self.calculate_column_correlations(),
+                'Mean Correlation between fake and real columns': self.calculate_mean_correlation(),
+                '1 - MAPE Estimator results': self.calculate_mape_estimator(),
+                '1 - MAPE 5 PCA components': self.calculate_pca_similarity()
+            }
 
-        similarity_score = sum(score * weights[metric] for metric, score in results.items())
-        results['Similarity Score'] = similarity_score
+            # Calculate weighted similarity score
+            weights = {
+                'basic statistics': 0.3,
+                'Correlation column correlations': 0.2,
+                'Mean Correlation between fake and real columns': 0.2,
+                '1 - MAPE Estimator results': 0.15,
+                '1 - MAPE 5 PCA components': 0.15
+            }
 
+            similarity_score = sum(metrics[k] * weights[k] for k in metrics.keys())
+            metrics['Similarity Score'] = similarity_score
+
+            # Print debug information
+            print("\nSimilarity metrics:")
+            for metric, value in metrics.items():
+                print(f"{metric}: {value:.4f}")
+
+            return metrics
+
+        except Exception as e:
+            print(f"Error in similarity score calculation: {str(e)}")
+            raise
+
+    def evaluate_all(self, target_col: str) -> dict:
+        """Run all evaluations and return combined results"""
+        print("\nDEBUG - Starting comprehensive evaluation")
+        results = {}
+
+        # Classifier evaluation
+        try:
+            print("\nRunning classifier evaluation...")
+            results['classifier_scores'] = self.evaluate_classifiers(target_col)
+            print("Classifier evaluation completed successfully")
+        except Exception as e:
+            print(f"Error in classifier evaluation: {str(e)}")
+            results['classifier_scores'] = None
+
+        # Privacy metrics
+        try:
+            print("\nCalculating privacy metrics...")
+            real_dupes, synth_dupes = self.get_duplicate_count()
+            nn_mean, nn_std = self.nearest_neighbor_analysis()
+
+            results['privacy'] = {
+                'Duplicate rows between sets (real/fake)': (real_dupes, synth_dupes),
+                'nearest neighbor mean': nn_mean,
+                'nearest neighbor std': nn_std
+            }
+            print("Privacy metrics calculated successfully")
+        except Exception as e:
+            print(f"Error in privacy metrics: {str(e)}")
+            results['privacy'] = None
+
+        # Correlation metrics
+        try:
+            print("\nCalculating correlation metrics...")
+            rmse, mae = self.calculate_correlation_distance()
+            results['correlation'] = {
+                'Column Correlation Distance RMSE': rmse,
+                'Column Correlation distance MAE': mae
+            }
+            print("Correlation metrics calculated successfully")
+        except Exception as e:
+            print(f"Error in correlation metrics: {str(e)}")
+            results['correlation'] = None
+
+        # Similarity metrics
+        try:
+            print("\nCalculating similarity metrics...")
+            results['similarity'] = self.calculate_similarity_score()
+            print("Similarity metrics calculated successfully")
+        except Exception as e:
+            print(f"Error in similarity metrics: {str(e)}")
+            results['similarity'] = None
+
+        print("\nComprehensive evaluation completed")
         return results
