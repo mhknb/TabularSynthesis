@@ -535,27 +535,37 @@ def main():
 
                 # Run table evaluator metrics
                 st.write("### Table Evaluator Analysis")
-                metrics = evaluator.evaluate_all()
+                try:
+                    metrics = evaluator.evaluate_all()
 
-                # Display plots from table evaluator
-                if 'correlation_plot' in metrics:
-                    st.write("#### Correlation Analysis")
-                    st.pyplot(metrics['correlation_plot'])
+                    if "error" in metrics:
+                        st.error(f"Error in table evaluation: {metrics['error']}")
+                    else:
+                        # Display plots from table evaluator
+                        if 'correlation_plot' in metrics:
+                            st.write("#### Correlation Analysis")
+                            st.pyplot(metrics['correlation_plot'])
 
-                if 'plot_distributions' in metrics:
-                    st.write("#### Distribution Analysis")
-                    for fig in metrics['plot_distributions']:
-                        st.pyplot(fig)
+                        if 'plot_distributions' in metrics:
+                            st.write("#### Distribution Analysis")
+                            st.write("Comparing distributions of real and synthetic data:")
+                            for fig in metrics['plot_distributions']:
+                                st.pyplot(fig)
 
-                if 'plot_pairwise' in metrics:
-                    st.write("#### Pairwise Relationships")
-                    st.pyplot(metrics['plot_pairwise'])
+                        if 'plot_pairwise' in metrics:
+                            st.write("#### Pairwise Relationships")
+                            st.pyplot(metrics['plot_pairwise'])
 
-                # Display metrics
-                st.write("#### Statistical Metrics")
-                metrics_to_display = {k: v for k, v in metrics.items() 
-                                   if isinstance(v, (int, float)) and not isinstance(v, bool)}
-                st.dataframe(pd.DataFrame([metrics_to_display]))
+                        # Display numerical metrics
+                        st.write("#### Statistical Metrics")
+                        metric_df = pd.DataFrame([{k: v for k, v in metrics.items() 
+                                              if isinstance(v, (int, float)) and not isinstance(v, bool)}])
+                        if not metric_df.empty:
+                            st.dataframe(metric_df)
+                        else:
+                            st.warning("No numerical metrics available from the evaluation.")
+                except Exception as e:
+                    st.error(f"Error in table evaluation: {str(e)}")
 
                 # ML Utility evaluation (kept from previous implementation)
                 st.write("### ML Utility Evaluation")

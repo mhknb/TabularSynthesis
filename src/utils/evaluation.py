@@ -8,6 +8,7 @@ from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from table_evaluator import TableEvaluator
+import matplotlib.pyplot as plt
 
 __all__ = ['DataEvaluator']
 
@@ -47,20 +48,36 @@ class DataEvaluator:
     def evaluate_all(self) -> dict:
         """Run all table evaluator metrics"""
         try:
-            # Get basic metrics from table evaluator
+            # Run the table evaluator
+            basic_metrics = self.table_evaluator.evaluate(verbose=False)
+
+            # Create comprehensive metrics dictionary
             metrics = {}
 
-            # Column correlations
-            metrics['correlation_plot'] = self.table_evaluator.correlation_plot(plot_diff=True)
+            # Add visual evaluations
+            try:
+                fig_correlation = self.table_evaluator.correlation_plot(plot_diff=True)
+                plt.close()  # Close to prevent figure leaks
+                metrics['correlation_plot'] = fig_correlation
+            except Exception as e:
+                print(f"Error generating correlation plot: {str(e)}")
 
-            # Distribution plots
-            metrics['plot_distributions'] = self.table_evaluator.plot_distributions()
+            try:
+                figs_distributions = self.table_evaluator.plot_distributions()
+                metrics['plot_distributions'] = figs_distributions
+                plt.close('all')  # Close all figures
+            except Exception as e:
+                print(f"Error generating distribution plots: {str(e)}")
 
-            # Column Pair Plots
-            metrics['plot_pairwise'] = self.table_evaluator.plot_pairwise()
+            try:
+                fig_pairwise = self.table_evaluator.plot_pairwise()
+                plt.close()  # Close to prevent figure leaks
+                metrics['plot_pairwise'] = fig_pairwise
+            except Exception as e:
+                print(f"Error generating pairwise plot: {str(e)}")
 
-            # Get table evaluator metrics
-            metrics.update(self.table_evaluator.evaluate())
+            # Merge the basic metrics
+            metrics.update(basic_metrics)
 
             return metrics
         except Exception as e:
