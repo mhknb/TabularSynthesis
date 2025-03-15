@@ -1,3 +1,4 @@
+"""GAN model training and generation using Modal cloud execution"""
 import modal
 import torch
 import pandas as pd
@@ -93,22 +94,43 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 **avg_losses
             })
 
-            # Save best model
+            # Save best model with retries
             if current_loss < best_loss:
                 best_loss = current_loss
                 patience_counter = 0
-                try:
-                    # Save model state with dimensions
-                    torch.save({
-                        'state_dict': gan.state_dict(),
-                        'input_dim': input_dim,
-                        'hidden_dim': hidden_dim,
-                        'model_type': model_type
-                    }, model_path)
-                    print(f"Saved model with input_dim={input_dim}, hidden_dim={hidden_dim}")
-                    volume.commit()
-                except Exception as e:
-                    print(f"Warning: Failed to save model: {str(e)}")
+
+                # Try saving model multiple times
+                max_retries = 3
+                for retry in range(max_retries):
+                    try:
+                        # Save model state with dimensions
+                        model_save_data = {
+                            'state_dict': gan.state_dict(),
+                            'input_dim': input_dim,
+                            'hidden_dim': hidden_dim,
+                            'model_type': model_type
+                        }
+                        torch.save(model_save_data, model_path)
+
+                        # Verify the save was successful
+                        if os.path.exists(model_path):
+                            try:
+                                # Try loading the model to verify it's valid
+                                checkpoint = torch.load(model_path)
+                                if all(k in checkpoint for k in ['state_dict', 'input_dim', 'hidden_dim']):
+                                    print(f"Successfully saved and verified model with input_dim={input_dim}, hidden_dim={hidden_dim}")
+                                    volume.commit()
+                                    break
+                            except Exception as ve:
+                                print(f"Model verification failed on attempt {retry + 1}: {str(ve)}")
+                                if retry == max_retries - 1:
+                                    raise
+                                continue
+                    except Exception as e:
+                        print(f"Failed to save model on attempt {retry + 1}: {str(e)}")
+                        if retry == max_retries - 1:
+                            raise
+                        time.sleep(1)  # Wait before retrying
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
@@ -137,37 +159,45 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
     model_path = "/model/table_gan.pt"
 
     try:
-        # Check if model exists
+        # Check if model exists and is valid
         if not os.path.exists(model_path):
             raise RuntimeError("No saved model found")
 
-        # Load and validate model
-        checkpoint = torch.load(model_path)
-        saved_input_dim = checkpoint.get('input_dim')
-        saved_hidden_dim = checkpoint.get('hidden_dim')
+        try:
+            # Load and validate model
+            checkpoint = torch.load(model_path)
+            if not all(k in checkpoint for k in ['state_dict', 'input_dim', 'hidden_dim']):
+                raise RuntimeError("Invalid model checkpoint structure")
 
-        # Strict dimension checking
-        if saved_input_dim != input_dim:
-            raise RuntimeError(f"Input dimension mismatch: model={saved_input_dim}, requested={input_dim}")
-        if saved_hidden_dim != hidden_dim:
-            raise RuntimeError(f"Hidden dimension mismatch: model={saved_hidden_dim}, requested={hidden_dim}")
+            saved_input_dim = checkpoint['input_dim']
+            saved_hidden_dim = checkpoint['hidden_dim']
 
-        # Initialize and load model
-        print(f"Loading model with input_dim={input_dim}, hidden_dim={hidden_dim}")
-        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
-        gan.load_state_dict(checkpoint['state_dict'])
-        gan.eval()  # Set to evaluation mode
+            # Strict dimension checking
+            if saved_input_dim != input_dim:
+                raise RuntimeError(f"Input dimension mismatch: model={saved_input_dim}, requested={input_dim}")
+            if saved_hidden_dim != hidden_dim:
+                raise RuntimeError(f"Hidden dimension mismatch: model={saved_hidden_dim}, requested={hidden_dim}")
 
-        # Generate samples
-        with torch.no_grad():
-            synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
+            # Initialize and load model
+            print(f"Loading model with input_dim={input_dim}, hidden_dim={hidden_dim}")
+            gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+            gan.load_state_dict(checkpoint['state_dict'])
+            gan.eval()  # Set to evaluation mode
 
-        # Validate output
-        if not (0 <= synthetic_data.all() <= 1):
-            print("Warning: Generated data contains values outside [0,1] range")
-            synthetic_data = np.clip(synthetic_data, 0, 1)
+            # Generate samples
+            with torch.no_grad():
+                synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
 
-        return synthetic_data
+            # Validate output
+            if not (0 <= synthetic_data.all() <= 1):
+                print("Warning: Generated data contains values outside [0,1] range")
+                synthetic_data = np.clip(synthetic_data, 0, 1)
+
+            return synthetic_data
+
+        except Exception as e:
+            print(f"Error loading or using model: {str(e)}")
+            raise RuntimeError(f"Failed to use saved model: {str(e)}")
 
     except Exception as e:
         print(f"Generation error: {str(e)}")
