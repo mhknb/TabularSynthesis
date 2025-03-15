@@ -339,37 +339,18 @@ def main():
 
                     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-                    # Initialize selected model
+                    # Initialize selected model with correct input dimensions
+                    input_dim = transformed_data.shape[1]
                     if model_config['model_type'] == 'WGAN':
                         gan = WGAN(
-                            input_dim=transformed_data.shape[1],
+                            input_dim=input_dim,
                             hidden_dim=model_config['hidden_dim'],
                             clip_value=model_config['clip_value'],
                             n_critic=model_config['n_critic'],
                             lr_g=model_config['lr_g'],
                             lr_d=model_config['lr_d'],
-                            device=device,
-                            use_wandb=True
+                            device=device
                         )
-
-                        # Run Bayesian optimization if requested
-                        if model_config.get('use_bayesian_opt', False):
-                            with st.spinner("Running Bayesian hyperparameter optimization..."):
-                                best_params, history = gan.optimize_hyperparameters(
-                                    train_loader, 
-                                    n_epochs=model_config['bayes_epochs'],
-                                    n_iterations=model_config['bayes_iterations']
-                                )
-
-                                # Display optimization results
-                                st.success("Hyperparameter optimization completed!")
-                                st.write("Best Parameters:")
-                                for param, value in best_params.items():
-                                    st.write(f"- {param}: {value:.6f}")
-
-                                # Show optimization history
-                                st.subheader("Optimization History")
-                                st.dataframe(history)
                     elif model_config['model_type'] == 'CGAN':
                         # For CGAN, we need to identify a condition column
                         if 'condition_column' in model_config and model_config['condition_column'] in df.columns:
@@ -407,21 +388,21 @@ def main():
                             )
                     elif model_config['model_type'] == 'TVAE':
                         gan = TVAE(
-                            input_dim=transformed_data.shape[1],
+                            input_dim=input_dim,
                             hidden_dim=model_config['hidden_dim'],
                             latent_dim=model_config['latent_dim'],
                             device=device
                         )
                     elif model_config['model_type'] == 'CTGAN': # Added CTGAN handling
                         gan = CTGAN(
-                            input_dim=transformed_data.shape[1],
+                            input_dim=input_dim,
                             hidden_dim=model_config['hidden_dim'],
                             num_residual_blocks=model_config['num_residual_blocks'],
                             device=device
                         )
                     else:  # TableGAN
                         gan = TableGAN(
-                            input_dim=transformed_data.shape[1],
+                            input_dim=input_dim,
                             hidden_dim=model_config['hidden_dim'],
                             device=device
                         )
@@ -435,15 +416,22 @@ def main():
 
                         # Train loop
                         for epoch in range(model_config['epochs']):
-                            epoch_metrics = {}
+                            epoch_losses = {'disc_loss': 0, 'gen_loss': 0}
                             for i, batch_data in enumerate(train_loader):
-                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
-                                epoch_metrics.update(metrics)
+                                # Remove current_step parameter for TableGAN
+                                if model_config['model_type'] == 'TableGAN':
+                                    losses = gan.train_step(batch_data)
+                                else:
+                                    losses = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+                                epoch_losses['disc_loss'] += losses.get('disc_loss', 0)
+                                epoch_losses['gen_loss'] += losses.get('gen_loss', 0)
 
                             # Update progress
                             progress = (epoch + 1) / model_config['epochs']
                             progress_bar.progress(progress)
-                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {epoch_metrics['disc_loss']:.4f}, Gen Loss: {epoch_metrics['gen_loss']:.4f}")
+                            avg_disc_loss = epoch_losses['disc_loss'] / len(train_loader)
+                            avg_gen_loss = epoch_losses['gen_loss'] / len(train_loader)
+                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {avg_disc_loss:.4f}, Gen Loss: {avg_gen_loss:.4f}")
 
                         # Save the trained model
                         model_dir = "models"
