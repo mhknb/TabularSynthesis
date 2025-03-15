@@ -12,6 +12,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 import seaborn as sns
+from sklearn.decomposition import PCA
 
 class DataEvaluator:
     """Evaluates quality of synthetic data compared to real data"""
@@ -599,29 +600,161 @@ class DataEvaluator:
             results['privacy'] = None
 
         try:
-            # Calculate correlation metrics
+            # Correlation metrics
             print("\nCalculating correlation metrics...")
-            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-            if len(numerical_cols) >= 2:
-                real_corr = self.real_data[numerical_cols].corr().fillna(0)
-                synth_corr = self.synthetic_data[numerical_cols].corr().fillna(0)
-
-                rmse = np.sqrt(((real_corr - synth_corr) ** 2).mean().mean())
-                mae = np.abs(real_corr - synth_corr).mean().mean()
-
-                results['correlation'] = {
-                    'Column Correlation Distance RMSE': rmse,
-                    'Column Correlation distance MAE': mae
-                }
-            else:
-                results['correlation'] = {
-                    'Column Correlation Distance RMSE': 0.0,
-                    'Column Correlation distance MAE': 0.0
-                }
+            rmse, mae = self.calculate_correlation_distance()
+            results['correlation'] = {
+                'Column Correlation Distance RMSE': rmse,
+                'Column Correlation distance MAE': mae
+            }
             print("Correlation metrics calculated successfully")
         except Exception as e:
             print(f"Error in correlation metrics: {str(e)}")
             results['correlation'] = None
 
+        try:
+            # Additional similarity metrics
+            print("\nCalculating similarity metrics...")
+            results['similarity'] = self.calculate_similarity_score()
+            print("Similarity metrics calculated successfully")
+        except Exception as e:
+            print(f"Error in similarity metrics: {str(e)}")
+            results['similarity'] = None
+
         print("\nComprehensive evaluation completed")
+        return results
+
+    def calculate_basic_statistics(self) -> float:
+        """Calculate basic statistics similarity"""
+        try:
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) == 0:
+                return 1.0  # Return perfect score if no numerical columns
+
+            stats_real = self.real_data[numerical_cols].describe()
+            stats_synthetic = self.synthetic_data[numerical_cols].describe()
+
+            # Compare means and stds
+            mean_diff = np.abs((stats_real.loc['mean'] - stats_synthetic.loc['mean']) / stats_real.loc['mean'].replace(0, np.nan).fillna(1e-10))
+            std_diff = np.abs((stats_real.loc['std'] - stats_synthetic.loc['std']) / stats_real.loc['std'].replace(0, np.nan).fillna(1e-10))
+
+            # Calculate similarity score (1 - average difference)
+            mean_similarity = 1 - mean_diff.mean()
+            std_similarity = 1 - std_diff.mean()
+
+            return (mean_similarity + std_similarity) / 2
+        except Exception as e:
+            print(f"Error in basic statistics calculation: {str(e)}")
+            return 0.0
+
+    def calculate_column_correlations(self) -> float:
+        """Calculate correlation matrix similarity"""
+        try:
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) < 2:
+                return 1.0  # Return perfect score if not enough numerical columns
+
+            real_corr = self.real_data[numerical_cols].corr().fillna(0)
+            synth_corr = self.synthetic_data[numerical_cols].corr().fillna(0)
+
+            # Calculate correlation similarity
+            correlation_distance = np.linalg.norm(real_corr - synth_corr)
+            max_possible_distance = np.sqrt(2 * len(numerical_cols))  # Maximum possible Frobenius norm
+            correlation_similarity = 1 - (correlation_distance / max_possible_distance)
+
+            return max(0.0, min(1.0, correlation_similarity))
+        except Exception as e:
+            print(f"Error in correlation calculation: {str(e)}")
+            return 0.0
+
+    def calculate_mean_correlation(self) -> float:
+        """Calculate mean correlation between real and synthetic columns"""
+        try:
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) == 0:
+                return 1.0
+
+            correlations = []
+            for col in numerical_cols:
+                corr = np.corrcoef(self.real_data[col], self.synthetic_data[col])[0, 1]
+                if not np.isnan(corr):
+                    correlations.append(abs(corr))
+
+            return np.mean(correlations) if correlations else 0.0
+        except Exception as e:
+            print(f"Error in mean correlation calculation: {str(e)}")
+            return 0.0
+
+    def calculate_mape_estimator(self) -> float:
+        """Calculate 1 - MAPE for numerical columns"""
+        try:
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) == 0:
+                return 1.0
+
+            mapes = []
+            for col in numerical_cols:
+                real_values = self.real_data[col].values
+                synth_values = self.synthetic_data[col].values
+
+                # Calculate MAPE avoiding division by zero
+                denominator = np.abs(real_values)
+                mask = denominator != 0
+                if mask.any():
+                    mape = np.mean(np.abs((real_values[mask] - synth_values[mask]) / denominator[mask]))
+                    mapes.append(mape)
+
+            return 1 - np.mean(mapes) if mapes else 0.0
+        except Exception as e:
+            print(f"Error in MAPE calculation: {str(e)}")
+            return 0.0
+
+    def calculate_pca_similarity(self, n_components: int = 5) -> float:
+        """Calculate similarity using PCA components"""
+        try:
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) < n_components:
+                return 1.0
+
+            # Standardize the data
+            real_data_std = StandardScaler().fit_transform(self.real_data[numerical_cols])
+            synth_data_std = StandardScaler().fit_transform(self.synthetic_data[numerical_cols])
+
+            # Fit PCA on real data
+            pca_real = PCA(n_components=n_components)
+            pca_synth = PCA(n_components=n_components)
+
+            # Get explained variance ratios
+            real_ratios = pca_real.fit(real_data_std).explained_variance_ratio_
+            synth_ratios = pca_synth.fit(synth_data_std).explained_variance_ratio_
+
+            # Calculate similarity as 1 - MAPE of explained variance ratios
+            mape = np.mean(np.abs(real_ratios - synth_ratios) / real_ratios)
+            return 1 - mape
+        except Exception as e:
+            print(f"Error in PCA similarity calculation: {str(e)}")
+            return 0.0
+
+    def calculate_similarity_score(self) -> dict:
+        """Calculate overall similarity metrics"""
+        results = {
+            'basic statistics': self.calculate_basic_statistics(),
+            'Correlation column correlations': self.calculate_column_correlations(),
+            'Mean Correlation between fake and real columns': self.calculate_mean_correlation(),
+            '1 - MAPE Estimator results': self.calculate_mape_estimator(),
+            '1 - MAPE 5 PCA components': self.calculate_pca_similarity(),
+        }
+
+        # Calculate overall similarity score as weighted average
+        weights = {
+            'basic statistics': 0.3,
+            'Correlation column correlations': 0.2,
+            'Mean Correlation between fake and real columns': 0.2,
+            '1 - MAPE Estimator results': 0.15,
+            '1 - MAPE 5 PCA components': 0.15
+        }
+
+        similarity_score = sum(score * weights[metric] for metric, score in results.items())
+        results['Similarity Score'] = similarity_score
+
         return results

@@ -580,6 +580,37 @@ def main():
                     else:
                         st.warning("Could not calculate correlation metrics.")
 
+                    # Display similarity metrics
+                    st.subheader("Overall Similarity Metrics")
+                    if evaluation_results['similarity'] is not None:
+                        similarity_metrics = evaluation_results['similarity']
+                        metrics_df = pd.DataFrame({
+                            'Result': [
+                                f"{similarity_metrics['basic statistics']:.4f}",
+                                f"{similarity_metrics['Correlation column correlations']:.4f}",
+                                f"{similarity_metrics['Mean Correlation between fake and real columns']:.4f}",
+                                f"{similarity_metrics['1 - MAPE Estimator results']:.4f}",
+                                f"{similarity_metrics['1 - MAPE 5 PCA components']:.4f}",
+                                f"{similarity_metrics['Similarity Score']:.4f}"
+                            ]
+                        }, index=[
+                            'Basic statistics',
+                            'Correlation column correlations',
+                            'Mean Correlation between fake and real columns',
+                            '1 - MAPE Estimator results',
+                            '1 - MAPE 5 PCA components',
+                            'Similarity Score'
+                        ])
+                        st.dataframe(metrics_df)
+
+                        # Add interpretations
+                        if similarity_metrics['Similarity Score'] < 0.7:
+                            st.warning("Low overall similarity score indicates significant differences between real and synthetic data.")
+                        elif similarity_metrics['Similarity Score'] > 0.9:
+                            st.success("High overall similarity score indicates good quality synthetic data generation.")
+                    else:
+                        st.warning("Could not calculate similarity metrics.")
+
                     # Original ML utility metrics
                     st.subheader("Model Performance")
                     ml_metrics = evaluator.evaluate_ml_utility(
