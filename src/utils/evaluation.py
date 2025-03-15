@@ -45,7 +45,7 @@ class DataEvaluator:
             self.real_data,  # real data as first argument
             self.synthetic_data,  # synthetic data as second argument
             cat_cols=self.cat_cols,  # categorical columns
-            numerical_columns=self.num_cols  # numerical columns
+            numerical_column=self.num_cols  # numerical columns (singular form)
         )
 
     def evaluate_all(self, target_col: str = None) -> dict:
