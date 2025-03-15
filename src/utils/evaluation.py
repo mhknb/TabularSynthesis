@@ -1,3 +1,6 @@
+"""
+Evaluation utilities for synthetic data comparison
+"""
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -93,6 +96,206 @@ class DataEvaluator:
             import traceback
             traceback.print_exc()
             raise
+
+    def statistical_similarity(self) -> dict:
+        """Calculate statistical similarity metrics"""
+        metrics = {}
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+
+        for col in numerical_cols:
+            statistic, pvalue = stats.ks_2samp(
+                self.real_data[col],
+                self.synthetic_data[col]
+            )
+            metrics[f'ks_statistic_{col}'] = statistic
+            metrics[f'ks_pvalue_{col}'] = pvalue
+
+        return metrics
+
+    def correlation_similarity(self) -> float:
+        """Compare correlation matrices of real and synthetic data"""
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        if len(numerical_cols) == 0:
+            return 0.0
+
+        # Filter out columns with zero variance in either dataset
+        valid_cols = []
+        for col in numerical_cols:
+            real_var = self.real_data[col].var()
+            synth_var = self.synthetic_data[col].var()
+            if real_var > 0 and synth_var > 0:
+                valid_cols.append(col)
+
+        if len(valid_cols) <= 1:
+            # Not enough valid columns for correlation calculation
+            return 0.0
+
+        # Calculate correlation matrices with valid columns only
+        real_corr = self.real_data[valid_cols].corr().fillna(0)
+        synth_corr = self.synthetic_data[valid_cols].corr().fillna(0)
+
+        # Calculate norm of difference
+        try:
+            correlation_distance = np.linalg.norm(real_corr - synth_corr)
+            max_possible_distance = np.sqrt(2 * len(valid_cols))
+            correlation_similarity = 1 - (correlation_distance / max_possible_distance)
+
+            # Ensure result is in valid range
+            return max(0.0, min(1.0, correlation_similarity))
+        except:
+            # If calculation fails for any reason, return 0
+            return 0.0
+
+    def column_statistics(self) -> pd.DataFrame:
+        """Compare basic statistics for each column"""
+        common_cols = [col for col in self.real_data.columns if col in self.synthetic_data.columns]
+        numerical_cols = self.real_data[common_cols].select_dtypes(include=['int64', 'float64']).columns
+
+        if len(numerical_cols) == 0:
+            return pd.DataFrame()
+
+        stats_real = self.real_data[numerical_cols].describe()
+        stats_synthetic = self.synthetic_data[numerical_cols].describe()
+
+        comparison = pd.DataFrame({
+            'real_mean': stats_real.loc['mean'],
+            'synthetic_mean': stats_synthetic.loc['mean'],
+            'real_std': stats_real.loc['std'],
+            'synthetic_std': stats_synthetic.loc['std'],
+            'real_min': stats_real.loc['min'],
+            'synthetic_min': stats_synthetic.loc['min'],
+            'real_max': stats_real.loc['max'],
+            'synthetic_max': stats_synthetic.loc['max']
+        })
+
+        comparison['mean_diff_pct'] = np.abs(
+            (comparison['real_mean'] - comparison['synthetic_mean']) / 
+            (comparison['real_mean'].replace(0, np.nan).fillna(1e-10))
+        ) * 100
+
+        return comparison
+
+    def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
+        """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
+        try:
+            print(f"\nDEBUG - ML Utility Evaluation:")
+            print(f"Target column: {target_column}")
+            print(f"Task type: {task_type}")
+
+            # Prepare features and target
+            feature_cols = [col for col in self.real_data.columns if col != target_column]
+            X_real = self.real_data[feature_cols]
+            y_real = self.real_data[target_column]
+            X_synthetic = self.synthetic_data[feature_cols]
+            y_synthetic = self.synthetic_data[target_column]
+
+            print(f"Feature columns: {feature_cols}")
+
+            # Split real data
+            X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
+                X_real, y_real, test_size=test_size, random_state=42
+            )
+
+            # Preprocess features
+            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
+            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
+            X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
+
+            # Handle target variable
+            if task_type == 'classification':
+                target_encoder = LabelEncoder()
+                target_encoder.fit(pd.concat([y_real, y_synthetic]))
+                y_train_real = target_encoder.transform(y_train_real)
+                y_test_real = target_encoder.transform(y_test_real)
+                y_synthetic = target_encoder.transform(y_synthetic)
+
+            # Initialize models
+            if task_type == 'classification':
+                real_model = RandomForestClassifier(n_estimators=100, random_state=42)
+                synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
+                metric_func = accuracy_score
+                metric_name = 'accuracy'
+            else:
+                real_model = RandomForestRegressor(n_estimators=100, random_state=42)
+                synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
+                metric_func = r2_score
+                metric_name = 'r2_score'
+
+            # Train and evaluate models
+            real_model.fit(X_train_processed, y_train_real)
+            real_pred = real_model.predict(X_test_processed)
+            real_score = metric_func(y_test_real, real_pred)
+
+            synthetic_model.fit(X_synthetic_processed, y_synthetic)
+            synthetic_pred = synthetic_model.predict(X_test_processed)
+            synthetic_score = metric_func(y_test_real, synthetic_pred)
+
+            relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
+
+            return {
+                f'real_model_{metric_name}': real_score,
+                f'synthetic_model_{metric_name}': synthetic_score,
+                'relative_performance_percentage': relative_performance
+            }
+
+        except Exception as e:
+            print(f"Error in ML utility evaluation: {str(e)}")
+            raise
+
+    def preprocess_features(self, X: pd.DataFrame, scalers=None, encoders=None):
+        """Preprocess features while preserving column names"""
+        print("\nDEBUG - Feature preprocessing:")
+        print(f"Input data shape: {X.shape}")
+        print(f"Input columns: {X.columns.tolist()}")
+
+        # Create a copy to avoid modifying original data
+        X = X.copy()
+        result_df = pd.DataFrame(index=X.index)
+
+        # Initialize transformers if not provided
+        if scalers is None:
+            print("Creating new scalers")
+            scalers = {}
+            is_training = True
+        else:
+            print("Using existing scalers")
+            is_training = False
+
+        if encoders is None:
+            print("Creating new encoders")
+            encoders = {}
+
+        # Process numerical columns
+        numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns
+        for col in numerical_cols:
+            print(f"Processing numerical column: {col}")
+            if col not in scalers and is_training:
+                scalers[col] = StandardScaler()
+
+            if is_training:
+                result_df[col] = scalers[col].fit_transform(X[[col]])
+            else:
+                result_df[col] = scalers[col].transform(X[[col]])
+
+        # Process categorical columns
+        categorical_cols = X.select_dtypes(exclude=['int64', 'float64']).columns
+        for col in categorical_cols:
+            print(f"Processing categorical column: {col}")
+            if col not in encoders:
+                print(f"Creating new encoder for {col}")
+                encoder = LabelEncoder()
+                unique_values = list(X[col].unique()) + ['Other']
+                encoder.fit(unique_values)
+                encoders[col] = encoder
+
+            # Map unseen categories to 'Other'
+            X[col] = X[col].map(lambda x: 'Other' if x not in encoders[col].classes_ else x)
+            result_df[col] = encoders[col].transform(X[col])
+
+        print(f"Output data shape: {result_df.shape}")
+        print(f"Output columns: {result_df.columns.tolist()}")
+
+        return result_df, scalers, encoders
 
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
@@ -217,167 +420,6 @@ class DataEvaluator:
         print(f"Output columns: {result_df.columns.tolist()}")
 
         return result_df, scalers, encoders
-
-    def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
-        """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
-        try:
-            print(f"\nDEBUG - ML Utility Evaluation:")
-            print(f"Target column: {target_column}")
-            print(f"Task type: {task_type}")
-
-            # Prepare features and target
-            feature_cols = [col for col in self.real_data.columns if col != target_column]
-            X_real = self.real_data[feature_cols]
-            y_real = self.real_data[target_column]
-            X_synthetic = self.synthetic_data[feature_cols]
-            y_synthetic = self.synthetic_data[target_column]
-
-            print(f"Feature columns: {feature_cols}")
-
-            # Split real data
-            X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
-                X_real, y_real, test_size=test_size, random_state=42
-            )
-
-            # Preprocess features
-            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
-            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
-            X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
-
-            # Handle target variable
-            if task_type == 'classification':
-                target_encoder = LabelEncoder()
-                unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
-                target_encoder.fit(unique_vals)
-
-                y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
-                y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
-                y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
-
-                y_train_real = target_encoder.transform(y_train_real)
-                y_test_real = target_encoder.transform(y_test_real)
-                y_synthetic = target_encoder.transform(y_synthetic)
-
-            # Initialize models
-            if task_type == 'classification':
-                real_model = RandomForestClassifier(n_estimators=100, random_state=42)
-                synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
-                metric_func = accuracy_score
-                metric_name = 'accuracy'
-            else:
-                real_model = RandomForestRegressor(n_estimators=100, random_state=42)
-                synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
-                metric_func = r2_score
-                metric_name = 'r2_score'
-
-            # Train and evaluate models
-            real_model.fit(X_train_processed, y_train_real)
-            real_pred = real_model.predict(X_test_processed)
-            real_score = metric_func(y_test_real, real_pred)
-
-            synthetic_model.fit(X_synthetic_processed, y_synthetic)
-            synthetic_pred = synthetic_model.predict(X_test_processed)
-            synthetic_score = metric_func(y_test_real, synthetic_pred)
-
-            relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
-
-            return {
-                f'real_model_{metric_name}': real_score,
-                f'synthetic_model_{metric_name}': synthetic_score,
-                'relative_performance_percentage': relative_performance
-            }
-
-        except Exception as e:
-            print(f"Error in ML utility evaluation: {str(e)}")
-            print("Full error context:")
-            import traceback
-            traceback.print_exc()
-            raise
-
-    def statistical_similarity(self) -> dict:
-        """Calculate statistical similarity metrics"""
-        metrics = {}
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-
-        for col in numerical_cols:
-            statistic, pvalue = stats.ks_2samp(
-                self.real_data[col],
-                self.synthetic_data[col]
-            )
-            metrics[f'ks_statistic_{col}'] = statistic
-            metrics[f'ks_pvalue_{col}'] = pvalue
-
-        return metrics
-
-    def correlation_similarity(self) -> float:
-        """Compare correlation matrices of real and synthetic data"""
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-        if len(numerical_cols) == 0:
-            return 0.0
-
-        # Filter out columns with zero variance in either dataset
-        valid_cols = []
-        for col in numerical_cols:
-            real_var = self.real_data[col].var()
-            synth_var = self.synthetic_data[col].var()
-            if real_var > 0 and synth_var > 0:
-                valid_cols.append(col)
-
-        if len(valid_cols) <= 1:
-            # Not enough valid columns for correlation calculation
-            return 0.0
-
-        # Calculate correlation matrices with valid columns only
-        real_corr = self.real_data[valid_cols].corr().fillna(0)
-        synth_corr = self.synthetic_data[valid_cols].corr().fillna(0)
-
-        # Calculate norm of difference
-        try:
-            correlation_distance = np.linalg.norm(real_corr - synth_corr)
-            max_possible_distance = np.sqrt(2 * len(valid_cols))
-            correlation_similarity = 1 - (correlation_distance / max_possible_distance)
-
-            # Ensure result is in valid range
-            return max(0.0, min(1.0, correlation_similarity))
-        except:
-            # If calculation fails for any reason, return 0
-            return 0.0
-
-    def column_statistics(self) -> pd.DataFrame:
-        """Compare basic statistics for each column"""
-        # Get columns present in both datasets
-        common_cols = [col for col in self.real_data.columns if col in self.synthetic_data.columns]
-        numerical_cols = self.real_data[common_cols].select_dtypes(include=['int64', 'float64']).columns
-
-        if len(numerical_cols) == 0:
-            return pd.DataFrame()
-
-        stats_real = self.real_data[numerical_cols].describe()
-        stats_synthetic = self.synthetic_data[numerical_cols].describe()
-
-        comparison = pd.DataFrame({
-            'real_mean': stats_real.loc['mean'],
-            'synthetic_mean': stats_synthetic.loc['mean'],
-            'real_std': stats_real.loc['std'],
-            'synthetic_std': stats_synthetic.loc['std'],
-            'real_min': stats_real.loc['min'],
-            'synthetic_min': stats_synthetic.loc['min'],
-            'real_max': stats_real.loc['max'],
-            'synthetic_max': stats_synthetic.loc['max']
-        })
-
-        # Add safe division to avoid division by zero
-        comparison['mean_diff_pct'] = np.abs(
-            (comparison['real_mean'] - comparison['synthetic_mean']) / 
-            (comparison['real_mean'].replace(0, np.nan).fillna(1e-10))
-        ) * 100
-
-        comparison['std_diff_pct'] = np.abs(
-            (comparison['real_std'] - comparison['synthetic_std']) / 
-            (comparison['real_std'].replace(0, np.nan).fillna(1e-10))
-        ) * 100
-
-        return comparison
 
     def plot_distributions(self, save_path: str = None):
         """Plot distribution comparisons for numerical columns"""
