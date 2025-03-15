@@ -145,6 +145,21 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     finally:
         wandb.finish()
 
+    # Final save attempt before returning
+    if not os.path.exists(model_path):
+        print("Warning: Model file not found after training, attempting final save...")
+        try:
+            torch.save({
+                'state_dict': gan.state_dict(),
+                'input_dim': input_dim,
+                'hidden_dim': hidden_dim,
+                'model_type': model_type
+            }, model_path)
+            volume.commit()
+            print("Final model save successful")
+        except Exception as e:
+            print(f"Final model save failed: {str(e)}")
+
     return avg_losses if 'avg_losses' in locals() else None
 
 @app.function(
