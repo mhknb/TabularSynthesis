@@ -410,7 +410,7 @@ def main():
                         for epoch in range(model_config['epochs']):
                             epoch_metrics = {}
                             for i, batch_data in enumerate(train_loader):
-                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+                                metrics = gan.train_step(batch_data)
                                 epoch_metrics.update(metrics)
 
                             # Update progress
@@ -559,7 +559,7 @@ def main():
                         # Display numerical metrics
                         st.write("#### Statistical Metrics")
                         metric_df = pd.DataFrame([{k: v for k, v in metrics.items() 
-                                              if isinstance(v, (int, float)) and not isinstance(v, bool)}])
+                                                  if isinstance(v, (int, float)) and not isinstance(v, bool)}])
                         if not metric_df.empty:
                             st.dataframe(metric_df)
                         else:
