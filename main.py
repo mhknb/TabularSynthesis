@@ -303,22 +303,33 @@ def main():
                 if use_modal:
                     try:
                         with st.spinner("Training model on Modal cloud..."):
+                            # Clear progress indicators
+                            progress_bar = st.progress(0)
+                            epoch_status = st.empty()
+
                             # Train on Modal
+                            print(f"Starting Modal training with input_dim={transformed_data.shape[1]}")
                             losses = modal_gan.train(
                                 transformed_data,
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim'],
                                 epochs=model_config['epochs'],
                                 batch_size=model_config['batch_size'],
-                                model_type=model_config['model_type']  # Pass model type for WandB
+                                model_type=model_config['model_type']
                             )
 
                             # Generate samples using Modal
+                            print(f"Generating samples with Modal")
                             synthetic_data = modal_gan.generate(
                                 num_samples=len(df),
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim']
                             )
+
+                            # Verify data is in correct range
+                            if not (0 <= synthetic_data.all() <= 1):
+                                synthetic_data = np.clip(synthetic_data, 0, 1)
+
                     except Exception as e:
                         st.error(f"Modal training failed: {str(e)}")
                         st.info("Falling back to local training...")
