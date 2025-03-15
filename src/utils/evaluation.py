@@ -169,7 +169,7 @@ class DataEvaluator:
         return result_df, scalers, encoders
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
-        """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
+        """Evaluate ML utility using both TSTR and combined training methodologies"""
         try:
             print(f"\nDEBUG - ML Utility Evaluation:")
             print(f"Target column: {target_column}")
@@ -210,31 +210,47 @@ class DataEvaluator:
 
             # Initialize models
             if task_type == 'classification':
-                real_model = RandomForestClassifier(n_estimators=100, random_state=42)
                 synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
+                combined_model = RandomForestClassifier(n_estimators=100, random_state=42)
+                real_model = RandomForestClassifier(n_estimators=100, random_state=42)
                 metric_func = accuracy_score
                 metric_name = 'accuracy'
             else:
-                real_model = RandomForestRegressor(n_estimators=100, random_state=42)
                 synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
+                combined_model = RandomForestRegressor(n_estimators=100, random_state=42)
+                real_model = RandomForestRegressor(n_estimators=100, random_state=42)
                 metric_func = r2_score
                 metric_name = 'r2_score'
 
-            # Train and evaluate models
-            real_model.fit(X_train_processed, y_train_real)
-            real_pred = real_model.predict(X_test_processed)
-            real_score = metric_func(y_test_real, real_pred)
-
+            # Evaluation 1: Train on synthetic, test on real (TSTR)
             synthetic_model.fit(X_synthetic_processed, y_synthetic)
             synthetic_pred = synthetic_model.predict(X_test_processed)
             synthetic_score = metric_func(y_test_real, synthetic_pred)
 
-            relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
+            # Evaluation 2: Train on combined (synthetic + real), test on real
+            # Combine training data
+            X_combined = np.vstack([X_train_processed, X_synthetic_processed])
+            y_combined = np.concatenate([y_train_real, y_synthetic])
+
+            combined_model.fit(X_combined, y_combined)
+            combined_pred = combined_model.predict(X_test_processed)
+            combined_score = metric_func(y_test_real, combined_pred)
+
+            # Evaluation 3: Train on real only for baseline comparison
+            real_model.fit(X_train_processed, y_train_real)
+            real_pred = real_model.predict(X_test_processed)
+            real_score = metric_func(y_test_real, real_pred)
+
+            # Calculate relative performances
+            synthetic_relative = (synthetic_score / real_score) * 100 if real_score != 0 else 0
+            combined_relative = (combined_score / real_score) * 100 if real_score != 0 else 0
 
             return {
                 f'real_model_{metric_name}': real_score,
                 f'synthetic_model_{metric_name}': synthetic_score,
-                'relative_performance_percentage': relative_performance
+                f'combined_model_{metric_name}': combined_score,
+                'synthetic_relative_performance': synthetic_relative,
+                'combined_relative_performance': combined_relative
             }
 
         except Exception as e:

@@ -537,14 +537,47 @@ def main():
                 evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
                 # ML utility evaluation
-                with st.expander("ML Utility Evaluation (TSTR)"):
+                with st.expander("ML Utility Evaluation"):
                     ml_metrics = evaluator.evaluate_ml_utility(
                         target_column=target_col,
                         task_type=task_type
                     )
-                    st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
-                    for metric, value in ml_metrics.items():
-                        st.write(f"{metric}: {value:.4f}")
+                    st.write("ML Utility Evaluation Results:")
+
+                    # Real model (baseline) results
+                    st.subheader("Real Data Model (Baseline)")
+                    baseline_metric = next((key for key in ml_metrics.keys() if key.startswith('real_model_')), None)
+                    if baseline_metric:
+                        st.write(f"Performance: {ml_metrics[baseline_metric]:.4f}")
+                    else:
+                        st.warning("No baseline metrics found.")
+
+
+                    # TSTR results
+                    st.subheader("Synthetic Data Model (TSTR)")
+                    synthetic_metric = next((key for key in ml_metrics.keys() if key.startswith('synthetic_model_')), None)
+                    if synthetic_metric:
+                        st.write(f"Performance: {ml_metrics[synthetic_metric]:.4f}")
+                        if 'synthetic_relative_performance' in ml_metrics:
+                            st.write(f"Relative to baseline: {ml_metrics['synthetic_relative_performance']:.1f}%")
+                        else:
+                            st.warning("Relative performance to baseline not calculated.")
+                    else:
+                        st.warning("No synthetic model metrics found.")
+
+                    # Combined training results
+                    st.subheader("Combined Data Model (Real + Synthetic)")
+                    combined_metric = next((key for key in ml_metrics.keys() if key.startswith('combined_model_')), None)
+                    if combined_metric:
+                        st.write(f"Performance: {ml_metrics[combined_metric]:.4f}")
+                        if 'combined_relative_performance' in ml_metrics:
+                            st.write(f"Relative to baseline: {ml_metrics['combined_relative_performance']:.1f}%")
+                        else:
+                            st.warning("Relative performance to baseline not calculated.")
+                    else:
+                        st.warning("No combined model metrics found.")
+
+
 
                 # Display results
                 st.success("Synthetic data generated successfully!")
