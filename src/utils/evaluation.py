@@ -34,8 +34,18 @@ class DataEvaluator:
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
 
+        # Convert any numeric-like columns to float
+        for col in common_cols:
+            try:
+                # Try to convert to numeric, if possible
+                self.real_data[col] = pd.to_numeric(self.real_data[col], errors='coerce')
+                self.synthetic_data[col] = pd.to_numeric(self.synthetic_data[col], errors='coerce')
+            except:
+                # If conversion fails, leave as is (categorical)
+                continue
+
         # Identify categorical and numerical columns
-        self.cat_cols = self.real_data.select_dtypes(exclude=['int64', 'float64']).columns.tolist()
+        self.cat_cols = self.real_data.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
         self.num_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns.tolist()
         print(f"Categorical columns: {self.cat_cols}")
         print(f"Numerical columns: {self.num_cols}")
