@@ -19,7 +19,7 @@ class DataTransformer:
         """Transform continuous data using specified method with missing value handling"""
         if data is None:
             raise ValueError(f"None data provided for column transformation")
-            
+
         if data.empty:
             raise ValueError(f"Empty data series provided for column {data.name}")
 
@@ -80,24 +80,24 @@ class DataTransformer:
         has_missing = data.isnull().any()
         if has_missing:
             self.missing_flags[data.name] = data.isnull().astype(int)
-            
+
             # Create and fit imputer (most frequent imputation for categorical)
             imputer = SimpleImputer(strategy='most_frequent')
             imputed_data = imputer.fit_transform(data.values.reshape(-1, 1)).flatten()
             self.imputers[data.name] = imputer
-            
+
             # Use imputed data for further transformations
             data_for_transform = pd.Series(imputed_data, name=data.name)
         else:
             data_for_transform = data
-            
+
         if method == 'binary':
             # Binary encoding
             unique_values = data_for_transform.unique()
             n_values = len(unique_values)
             n_bits = int(np.ceil(np.log2(n_values)))
             value_to_binary = {val: format(i, f'0{n_bits}b') for i, val in enumerate(unique_values)}
-            
+
             # Store encoding information
             self.encoding_maps[data.name] = {
                 'method': 'binary',
@@ -105,12 +105,12 @@ class DataTransformer:
                 'n_bits': n_bits,
                 'has_missing': has_missing
             }
-            
+
             # Transform to binary string then to integer
             binary_str = data_for_transform.map(value_to_binary)
             transformed = pd.Series(binary_str.map(lambda x: int(x, 2)), name=data.name)
             return transformed
-            
+
         elif method == 'label':
             encoder = LabelEncoder()
             self.encoders[data.name] = encoder
@@ -142,7 +142,7 @@ class DataTransformer:
             # Instead of raising an error, return the original data
             # This handles excluded columns that might be reintroduced
             return data
-            
+
         # Check for None values and handle them
         if data.isnull().any():
             # Fill None values with 0 before transformation
@@ -157,7 +157,7 @@ class DataTransformer:
             # Clamp values to original range, handling potential None values
             min_val = data_range.get('min')
             max_val = data_range.get('max')
-            
+
             if min_val is not None and max_val is not None:
                 transformed_data = np.clip(
                     transformed_data,
@@ -176,7 +176,7 @@ class DataTransformer:
         # Handle None values in the data
         if data.isnull().all():
             return data
-            
+
         encoding_info = self.encoding_maps.get(data.name)
         if encoding_info is None:
             # Instead of raising an error, return the original data
@@ -189,7 +189,7 @@ class DataTransformer:
         if encoding_info['method'] == 'label':
             encoder = self.encoders.get(data.name)
             if encoder is None:
-                return data_filled
+                return data_filled.astype(str)
 
             # Ensure values are within valid range
             values = np.clip(
