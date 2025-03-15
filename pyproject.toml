@@ -10,7 +10,7 @@ dependencies = [
     "numpy>=2.2.3",
     "pandas>=2.2.3",
     "scikit-learn>=1.6.1",
-    "scipy<1.11.0",
+    "scipy==1.8.1",
     "seaborn>=0.13.2",
     "streamlit>=1.42.2",
     "table-evaluator>=1.4.1",
