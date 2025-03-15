@@ -10,7 +10,7 @@ import os
 
 # Define app and shared resources at module level
 app = modal.App()
-volume = modal.Volume.persisted("gan-model-storage")
+volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
 @app.function(
@@ -138,6 +138,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 except Exception as e:
                     print(f"Failed to save model: {str(e)}")
                     raise
+
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
