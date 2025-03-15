@@ -1,5 +1,5 @@
 """
-Adapter module for table-evaluator with comprehensive type checking
+Adapter module for table-evaluator with enhanced error tracking
 """
 from typing import Dict, Any, Optional, List, Tuple
 import pandas as pd
@@ -12,51 +12,41 @@ class TableEvaluatorAdapter:
 
     def __init__(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame, cat_cols: Optional[List[str]] = None):
         """Initialize with real and synthetic data"""
-        self._validate_input_data(real_data, synthetic_data)
+        try:
+            print("\n=== TableEvaluatorAdapter Initialization ===")
+            print("Input Data Types:")
+            print("Real data:\n", real_data.dtypes)
+            print("\nSynthetic data:\n", synthetic_data.dtypes)
 
-        self.real_data = real_data.copy()
-        self.synthetic_data = synthetic_data.copy()
+            self.real_data = real_data.copy()
+            self.synthetic_data = synthetic_data.copy()
 
-        # Process and validate data
-        self._initialize_evaluator(cat_cols)
+            # Process data
+            self._initialize_evaluator(cat_cols)
 
-    def _validate_input_data(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame):
-        """Validate input data and print detailed information"""
-        print("\nValidating input data:")
-        print(f"Real data shape: {real_data.shape}")
-        print(f"Synthetic data shape: {synthetic_data.shape}")
-        print("\nReal data types:")
-        print(real_data.dtypes)
-        print("\nSynthetic data types:")
-        print(synthetic_data.dtypes)
-
-        # Check for common columns
-        common_cols = set(real_data.columns) & set(synthetic_data.columns)
-        if not common_cols:
-            raise ValueError("No common columns found between real and synthetic data")
-        print(f"\nCommon columns: {common_cols}")
+        except Exception as e:
+            print(f"\nFATAL ERROR in initialization: {str(e)}")
+            print("Stack trace:", e.__traceback__)
+            raise
 
     def _initialize_evaluator(self, cat_cols: Optional[List[str]] = None):
         """Initialize table-evaluator with properly processed data"""
         try:
-            # 1. Identify categorical columns
+            print("\n=== Processing Steps ===")
+
+            # 1. Identify columns
             self.cat_cols = cat_cols or self._infer_categorical_columns()
             print(f"\nCategorical columns: {self.cat_cols}")
 
-            # 2. Create processed copies
+            # 2. Create working copies
             self.real_processed = self.real_data.copy()
             self.synthetic_processed = self.synthetic_data.copy()
 
-            # 3. Process categorical columns
-            self._process_categorical_columns()
+            # 3. Convert all data to float64
+            self._convert_all_to_float64()
 
-            # 4. Process numerical columns
-            self._process_numerical_columns()
-
-            # 5. Final validation
-            self._validate_processed_data()
-
-            # 6. Initialize evaluator
+            # 4. Initialize evaluator
+            print("\nInitializing TableEvaluator...")
             self.evaluator = TableEvaluator(
                 real=self.real_processed,
                 fake=self.synthetic_processed,
@@ -65,137 +55,121 @@ class TableEvaluatorAdapter:
             print("TableEvaluator initialized successfully")
 
         except Exception as e:
-            print(f"\nError in initialization: {str(e)}")
+            print(f"\nERROR in initialization: {str(e)}")
             self._print_debug_info()
             raise
 
-    def _process_categorical_columns(self):
-        """Process categorical columns ensuring float64 output"""
-        print("\nProcessing categorical columns:")
+    def _convert_all_to_float64(self):
+        """Convert all columns to float64 with detailed error tracking"""
+        try:
+            print("\n=== Converting Data Types ===")
 
-        for col in self.cat_cols:
-            try:
-                print(f"\nProcessing {col}:")
-                # Get all unique values
-                all_values = pd.concat([
-                    self.real_processed[col],
-                    self.synthetic_processed[col]
-                ]).astype(str).unique()
+            for col in self.real_processed.columns:
+                print(f"\nProcessing column: {col}")
+                try:
+                    # Check initial types
+                    print(f"Initial types - Real: {self.real_processed[col].dtype}, Synthetic: {self.synthetic_processed[col].dtype}")
 
-                # Encode values
-                encoder = LabelEncoder()
-                encoder.fit(all_values)
+                    if col in self.cat_cols:
+                        self._convert_categorical_to_float64(col)
+                    else:
+                        self._convert_numeric_to_float64(col)
 
-                # Transform and convert to float64
-                self.real_processed[col] = encoder.transform(
-                    self.real_processed[col].astype(str)
-                ).astype(np.float64)
+                    # Verify conversion
+                    if not isinstance(self.real_processed[col].dtype, np.float64().dtype.__class__):
+                        raise TypeError(f"Column {col} not converted to float64")
 
-                self.synthetic_processed[col] = encoder.transform(
-                    self.synthetic_processed[col].astype(str)
-                ).astype(np.float64)
+                    print(f"Final types - Real: {self.real_processed[col].dtype}, Synthetic: {self.synthetic_processed[col].dtype}")
 
-                print(f"Processed {col} - dtype: {self.real_processed[col].dtype}")
+                except Exception as col_error:
+                    print(f"Error processing column {col}: {str(col_error)}")
+                    print(f"Sample values - Real: {self.real_processed[col].head()}")
+                    print(f"Sample values - Synthetic: {self.synthetic_processed[col].head()}")
+                    raise
 
-            except Exception as e:
-                print(f"Error processing categorical column {col}: {str(e)}")
-                print(f"Values sample: {self.real_processed[col].head()}")
-                raise
+        except Exception as e:
+            print(f"ERROR in type conversion: {str(e)}")
+            raise
 
-    def _process_numerical_columns(self):
-        """Process numerical columns ensuring float64 output"""
-        print("\nProcessing numerical columns:")
+    def _convert_categorical_to_float64(self, col: str):
+        """Convert categorical column to float64"""
+        try:
+            print(f"Converting categorical column {col}")
 
-        numerical_cols = [col for col in self.real_processed.columns 
-                         if col not in self.cat_cols]
+            # Convert to string first
+            real_vals = self.real_processed[col].astype(str)
+            synth_vals = self.synthetic_processed[col].astype(str)
 
-        for col in numerical_cols:
-            try:
-                print(f"\nProcessing {col}:")
-                # Convert to numeric
-                self.real_processed[col] = pd.to_numeric(
-                    self.real_processed[col], 
-                    errors='coerce'
-                ).fillna(0.0).astype(np.float64)
+            # Encode to numeric
+            encoder = LabelEncoder()
+            all_values = pd.concat([real_vals, synth_vals]).unique()
+            encoder.fit(all_values)
 
-                self.synthetic_processed[col] = pd.to_numeric(
-                    self.synthetic_processed[col], 
-                    errors='coerce'
-                ).fillna(0.0).astype(np.float64)
+            # Transform and explicitly convert to float64
+            self.real_processed[col] = encoder.transform(real_vals).astype(np.float64)
+            self.synthetic_processed[col] = encoder.transform(synth_vals).astype(np.float64)
 
-                # Scale to [0,1] for numerical stability
-                scaler = MinMaxScaler()
-                self.real_processed[col] = scaler.fit_transform(
-                    self.real_processed[col].values.reshape(-1, 1)
-                ).ravel()
+            print(f"Converted {col} - Real type: {self.real_processed[col].dtype}")
 
-                self.synthetic_processed[col] = scaler.transform(
-                    self.synthetic_processed[col].values.reshape(-1, 1)
-                ).ravel()
+        except Exception as e:
+            print(f"ERROR converting categorical column {col}: {str(e)}")
+            raise
 
-                print(f"Processed {col} - dtype: {self.real_processed[col].dtype}")
+    def _convert_numeric_to_float64(self, col: str):
+        """Convert numeric column to float64"""
+        try:
+            print(f"Converting numeric column {col}")
 
-            except Exception as e:
-                print(f"Error processing numerical column {col}: {str(e)}")
-                print(f"Values sample: {self.real_processed[col].head()}")
-                raise
+            # Convert to numeric with NaN handling
+            self.real_processed[col] = pd.to_numeric(self.real_processed[col], errors='coerce').fillna(0.0)
+            self.synthetic_processed[col] = pd.to_numeric(self.synthetic_processed[col], errors='coerce').fillna(0.0)
 
-    def _validate_processed_data(self):
-        """Validate processed data before evaluation"""
-        print("\nValidating processed data:")
+            # Scale values
+            scaler = MinMaxScaler()
+            self.real_processed[col] = scaler.fit_transform(
+                self.real_processed[col].values.reshape(-1, 1)
+            ).ravel().astype(np.float64)
 
-        # Check dtypes
-        print("\nProcessed data types:")
-        print("Real data:\n", self.real_processed.dtypes)
-        print("\nSynthetic data:\n", self.synthetic_processed.dtypes)
+            self.synthetic_processed[col] = scaler.transform(
+                self.synthetic_processed[col].values.reshape(-1, 1)
+            ).ravel().astype(np.float64)
 
-        # Verify no object types remain
-        for df_name, df in [("Real", self.real_processed), 
-                          ("Synthetic", self.synthetic_processed)]:
-            obj_cols = df.select_dtypes(include=['object']).columns
-            if not obj_cols.empty:
-                raise ValueError(f"{df_name} data contains object columns: {obj_cols.tolist()}")
+            print(f"Converted {col} - Real type: {self.real_processed[col].dtype}")
 
-        # Verify all numeric
-        for df_name, df in [("Real", self.real_processed), 
-                          ("Synthetic", self.synthetic_processed)]:
-            non_float = df.select_dtypes(exclude=[np.float64]).columns
-            if not non_float.empty:
-                raise ValueError(f"{df_name} data contains non-float64 columns: {non_float.tolist()}")
-
-    def _print_debug_info(self):
-        """Print debug information for troubleshooting"""
-        print("\nDebug Information:")
-        for col in self.real_processed.columns:
-            print(f"\nColumn: {col}")
-            print(f"Real data type: {self.real_processed[col].dtype}")
-            print(f"Synthetic data type: {self.synthetic_processed[col].dtype}")
-            print(f"Real sample: {self.real_processed[col].head()}")
-            print(f"Synthetic sample: {self.synthetic_processed[col].head()}")
+        except Exception as e:
+            print(f"ERROR converting numeric column {col}: {str(e)}")
+            raise
 
     def _infer_categorical_columns(self) -> List[str]:
         """Infer categorical columns based on data types and unique values"""
         categorical_columns = []
-        for col in self.real_data.columns:
-            if self.real_data[col].dtype in ['object', 'category']:
-                categorical_columns.append(col)
-            else:
-                n_unique = self.real_data[col].nunique()
-                if n_unique < 20:  # Lower threshold for categorical data
+        try:
+            for col in self.real_data.columns:
+                if self.real_data[col].dtype in ['object', 'category']:
                     categorical_columns.append(col)
-        return categorical_columns
+                else:
+                    n_unique = self.real_data[col].nunique()
+                    if n_unique < 20:  # Consider low cardinality columns as categorical
+                        categorical_columns.append(col)
+
+            print(f"Inferred categorical columns: {categorical_columns}")
+            return categorical_columns
+
+        except Exception as e:
+            print(f"ERROR inferring categorical columns: {str(e)}")
+            raise
 
     def evaluate_all(self, target_col: str) -> Dict[str, Any]:
         """Run comprehensive evaluation"""
         try:
-            print(f"\nStarting evaluation with target column: {target_col}")
+            print(f"\n=== Starting Evaluation ===")
+            print(f"Target column: {target_col}")
+            print(f"Target column types - Real: {self.real_processed[target_col].dtype}")
+            print(f"Target column types - Synthetic: {self.synthetic_processed[target_col].dtype}")
 
             # Verify target column
             if target_col not in self.real_processed.columns:
-                raise ValueError(f"Target column {target_col} not found in processed data")
-
-            print(f"Target column type - Real: {self.real_processed[target_col].dtype}")
-            print(f"Target column type - Synthetic: {self.synthetic_processed[target_col].dtype}")
+                raise ValueError(f"Target column {target_col} not found")
 
             # Run evaluation
             ml_scores = self.evaluator.evaluate(target_col=target_col)
@@ -221,16 +195,54 @@ class TableEvaluatorAdapter:
                     'Similarity Score': ml_scores.get('Similarity Score', 0)
                 }
             }
+
         except Exception as e:
-            print(f"\nError in evaluation: {str(e)}")
+            print(f"\nERROR in evaluation: {str(e)}")
             self._print_debug_info()
             raise
+
+    def _print_debug_info(self):
+        """Print detailed debug information"""
+        print("\n=== Debug Information ===")
+        try:
+            print("\nDataFrame Information:")
+            print("Real processed shape:", self.real_processed.shape)
+            print("Synthetic processed shape:", self.synthetic_processed.shape)
+
+            print("\nColumn Types:")
+            print("Real processed types:\n", self.real_processed.dtypes)
+            print("\nSynthetic processed types:\n", self.synthetic_processed.dtypes)
+
+            print("\nSample Values:")
+            for col in self.real_processed.columns:
+                print(f"\nColumn: {col}")
+                print(f"Real samples: {self.real_processed[col].head()}")
+                print(f"Synthetic samples: {self.synthetic_processed[col].head()}")
+
+        except Exception as e:
+            print(f"ERROR in debug info: {str(e)}")
 
     def get_visual_evaluation(self):
         """Generate visual evaluation plots"""
         try:
             return self.evaluator.visual_evaluation()
         except Exception as e:
-            print(f"Error in visual evaluation: {str(e)}")
+            print(f"\nERROR in visual evaluation: {str(e)}")
             self._print_debug_info()
             raise
+
+    def _validate_input_data(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame):
+        """Validate input data and print detailed information"""
+        print("\nValidating input data:")
+        print(f"Real data shape: {real_data.shape}")
+        print(f"Synthetic data shape: {synthetic_data.shape}")
+        print("\nReal data types:")
+        print(real_data.dtypes)
+        print("\nSynthetic data types:")
+        print(synthetic_data.dtypes)
+
+        # Check for common columns
+        common_cols = set(real_data.columns) & set(synthetic_data.columns)
+        if not common_cols:
+            raise ValueError("No common columns found between real and synthetic data")
+        print(f"\nCommon columns: {common_cols}")
