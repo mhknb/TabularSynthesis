@@ -39,9 +39,14 @@ class DataEvaluator:
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
 
-        # Fill missing values to prevent NoneType comparison errors
-        self.real_data = self.real_data.fillna(0)
-        self.synthetic_data = self.synthetic_data.fillna(0)
+        # Fill missing values with appropriate defaults based on data type
+        for col in self.real_data.columns:
+            if self.real_data[col].dtype in ['int64', 'float64']:
+                self.real_data[col] = self.real_data[col].fillna(0)
+                self.synthetic_data[col] = self.synthetic_data[col].fillna(0)
+            else:
+                self.real_data[col] = self.real_data[col].fillna('Unknown')
+                self.synthetic_data[col] = self.synthetic_data[col].fillna('Unknown')
 
         print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
 
@@ -171,21 +176,76 @@ class DataEvaluator:
 
     def get_duplicate_count(self):
         """Count duplicate rows between real and synthetic data"""
+        print("\nDEBUG - Calculating duplicate counts")
         real_duplicates = len(self.real_data[self.real_data.duplicated()])
         synth_duplicates = len(self.synthetic_data[self.synthetic_data.duplicated()])
+        print(f"Found duplicates - Real: {real_duplicates}, Synthetic: {synth_duplicates}")
         return real_duplicates, synth_duplicates
+
+    def preprocess_data_for_distance(self):
+        """Preprocess data for distance calculations"""
+        print("\nDEBUG - Preprocessing data for distance calculations")
+        result_real = pd.DataFrame()
+        result_synthetic = pd.DataFrame()
+
+        # Process numerical columns
+        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        scaler = StandardScaler()
+
+        if len(numerical_cols) > 0:
+            print(f"Processing numerical columns: {numerical_cols.tolist()}")
+            numerical_data_real = self.real_data[numerical_cols]
+            numerical_data_synthetic = self.synthetic_data[numerical_cols]
+
+            # Fit on concatenated data to ensure same scale
+            combined_numerical = pd.concat([numerical_data_real, numerical_data_synthetic])
+            scaler.fit(combined_numerical)
+
+            # Transform both datasets
+            result_real[numerical_cols] = scaler.transform(numerical_data_real)
+            result_synthetic[numerical_cols] = scaler.transform(numerical_data_synthetic)
+
+        # Process categorical columns
+        categorical_cols = self.real_data.select_dtypes(exclude=['int64', 'float64']).columns
+
+        if len(categorical_cols) > 0:
+            print(f"Processing categorical columns: {categorical_cols.tolist()}")
+            for col in categorical_cols:
+                encoder = LabelEncoder()
+                combined_categories = pd.concat([self.real_data[col], self.synthetic_data[col]]).unique()
+                encoder.fit(combined_categories)
+
+                result_real[col] = encoder.transform(self.real_data[col])
+                result_synthetic[col] = encoder.transform(self.synthetic_data[col])
+
+        print(f"Preprocessed data shapes - Real: {result_real.shape}, Synthetic: {result_synthetic.shape}")
+        return result_real, result_synthetic
 
     def nearest_neighbor_analysis(self, max_samples=20000):
         """Calculate nearest neighbor distances between real and synthetic data"""
-        # Limit analysis to avoid memory issues
-        real_sample = self.real_data.sample(n=min(len(self.real_data), max_samples))
-        synth_sample = self.synthetic_data.sample(n=min(len(self.synthetic_data), max_samples))
+        try:
+            print("\nDEBUG - Starting nearest neighbor analysis")
+            # Preprocess data
+            real_processed, synth_processed = self.preprocess_data_for_distance()
 
-        # Calculate distances
-        distances = cdist(real_sample, synth_sample, metric='euclidean')
-        min_distances = distances.min(axis=1)
+            # Sample data if needed
+            real_sample = real_processed.sample(n=min(len(real_processed), max_samples))
+            synth_sample = synth_processed.sample(n=min(len(synth_processed), max_samples))
 
-        return float(min_distances.mean()), float(min_distances.std())
+            print(f"Sample sizes - Real: {len(real_sample)}, Synthetic: {len(synth_sample)}")
+
+            # Calculate distances
+            distances = cdist(real_sample, synth_sample, metric='euclidean')
+            min_distances = distances.min(axis=1)
+
+            mean_dist = float(min_distances.mean())
+            std_dist = float(min_distances.std())
+
+            print(f"Distance metrics - Mean: {mean_dist:.4f}, Std: {std_dist:.4f}")
+            return mean_dist, std_dist
+        except Exception as e:
+            print(f"Error in nearest neighbor analysis: {str(e)}")
+            raise
 
     def calculate_correlation_distance(self):
         """Calculate correlation matrix distance metrics"""
@@ -289,9 +349,6 @@ class DataEvaluator:
 
         except Exception as e:
             print(f"Error in ML utility evaluation: {str(e)}")
-            print("Full error context:")
-            import traceback
-            traceback.print_exc()
             raise
 
     def statistical_similarity(self) -> dict:
@@ -368,12 +425,12 @@ class DataEvaluator:
 
         # Add safe division to avoid division by zero
         comparison['mean_diff_pct'] = np.abs(
-            (comparison['real_mean'] - comparison['synthetic_mean']) / 
+            (comparison['real_mean'] - comparison['synthetic_mean']) /
             (comparison['real_mean'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
         comparison['std_diff_pct'] = np.abs(
-            (comparison['real_std'] - comparison['synthetic_std']) / 
+            (comparison['real_std'] - comparison['synthetic_std']) /
             (comparison['real_std'].replace(0, np.nan).fillna(1e-10))
         ) * 100
 
@@ -384,7 +441,7 @@ class DataEvaluator:
         numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
         if len(numerical_cols) == 0:
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-            ax.text(0.5, 0.5, 'No numerical columns to compare', 
+            ax.text(0.5, 0.5, 'No numerical columns to compare',
                    horizontalalignment='center', verticalalignment='center')
             if save_path:
                 plt.savefig(save_path)
@@ -421,114 +478,139 @@ class DataEvaluator:
 
     def evaluate_classifiers(self, target_col: str, test_size: float = 0.2):
         """Evaluate multiple classifiers on both real and synthetic data"""
-        # Prepare features and target
-        feature_cols = [col for col in self.real_data.columns if col != target_col]
-        X = self.real_data[feature_cols]
-        y = self.real_data[target_col]
-        X_synth = self.synthetic_data[feature_cols]
-        y_synth = self.synthetic_data[target_col]
+        try:
+            print("\nDEBUG - Starting classifier evaluation")
+            print(f"Target column: {target_col}")
 
-        # Split real data
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+            # Prepare features and target
+            feature_cols = [col for col in self.real_data.columns if col != target_col]
+            X_real, X_synthetic = self.preprocess_data_for_distance()
 
-        # Initialize classifiers
-        classifiers = {
-            'DecisionTreeClassifier': DecisionTreeClassifier(random_state=42),
-            'LogisticRegression': LogisticRegression(random_state=42),
-            'MLPClassifier': MLPClassifier(random_state=42, max_iter=500),
-            'RandomForestClassifier': RandomForestClassifier(random_state=42)
-        }
+            # Process target column
+            target_encoder = LabelEncoder()
+            all_targets = pd.concat([self.real_data[target_col], self.synthetic_data[target_col]]).unique()
+            target_encoder.fit(all_targets)
 
-        results = []
-        for name, clf in classifiers.items():
-            # Train on real, predict on real test
-            clf_real = clf.__class__(**clf.get_params())
-            clf_real.fit(X_train, y_train)
-            real_pred = clf_real.predict(X_test)
-            f1_real = f1_score(y_test, real_pred, average='weighted')
+            y_real = target_encoder.transform(self.real_data[target_col])
+            y_synthetic = target_encoder.transform(self.synthetic_data[target_col])
 
-            # Train on synthetic, predict on real test
-            clf_fake = clf.__class__(**clf.get_params())
-            clf_fake.fit(X_synth, y_synth)
-            fake_pred = clf_fake.predict(X_test)
-            f1_fake = f1_score(y_test, fake_pred, average='weighted')
+            # Split real data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_real, y_real, test_size=test_size, random_state=42
+            )
 
-            # Calculate Jaccard similarity
-            jaccard = len(set(real_pred) & set(fake_pred)) / len(set(real_pred) | set(fake_pred)) if len(set(real_pred) | set(fake_pred)) >0 else 0
+            print(f"Training data shapes - X: {X_train.shape}, y: {y_train.shape}")
 
-            results.append({
-                'index': f"{name}_real",
-                'f1_real': f1_real,
-                'f1_fake': f1_fake,
-                'jaccard_similarity': jaccard
-            })
+            # Initialize classifiers
+            classifiers = {
+                'DecisionTreeClassifier': DecisionTreeClassifier(random_state=42),
+                'LogisticRegression': LogisticRegression(random_state=42, max_iter=1000),
+                'MLPClassifier': MLPClassifier(random_state=42, max_iter=1000),
+                'RandomForestClassifier': RandomForestClassifier(random_state=42)
+            }
 
-            results.append({
-                'index': f"{name}_fake",
-                'f1_real': f1_real,
-                'f1_fake': f1_fake,
-                'jaccard_similarity': jaccard
-            })
+            results = []
+            for name, clf in classifiers.items():
+                print(f"\nEvaluating {name}")
+                try:
+                    # Train and evaluate on real data
+                    clf_real = clf.__class__(**clf.get_params())
+                    clf_real.fit(X_train, y_train)
+                    real_pred = clf_real.predict(X_test)
+                    f1_real = f1_score(y_test, real_pred, average='weighted')
 
-        return pd.DataFrame(results).set_index('index')
+                    # Train on synthetic and evaluate on real test
+                    clf_synthetic = clf.__class__(**clf.get_params())
+                    clf_synthetic.fit(X_synthetic, y_synthetic)
+                    synthetic_pred = clf_synthetic.predict(X_test)
+                    f1_synthetic = f1_score(y_test, synthetic_pred, average='weighted')
+
+                    # Calculate Jaccard similarity
+                    jaccard = len(set(real_pred) & set(synthetic_pred)) / len(set(real_pred) | set(synthetic_pred)) if len(set(real_pred) | set(synthetic_pred)) >0 else 0
+
+                    print(f"{name} scores - Real: {f1_real:.4f}, Synthetic: {f1_synthetic:.4f}, Jaccard: {jaccard:.4f}")
+
+                    results.extend([
+                        {
+                            'index': f"{name}_real",
+                            'f1_real': f1_real,
+                            'f1_fake': f1_synthetic,
+                            'jaccard_similarity': jaccard
+                        },
+                        {
+                            'index': f"{name}_fake",
+                            'f1_real': f1_real,
+                            'f1_fake': f1_synthetic,
+                            'jaccard_similarity': jaccard
+                        }
+                    ])
+                except Exception as e:
+                    print(f"Error evaluating {name}: {str(e)}")
+                    continue
+
+            if not results:
+                raise ValueError("No classifier evaluations completed successfully")
+
+            return pd.DataFrame(results).set_index('index')
+
+        except Exception as e:
+            print(f"Error in classifier evaluation: {str(e)}")
+            raise
 
     def evaluate_all(self, target_col: str) -> dict:
         """Run all evaluations and return combined results"""
+        print("\nDEBUG - Starting comprehensive evaluation")
         results = {}
 
-        # Classifier evaluation
         try:
+            # Classifier evaluation
+            print("\nRunning classifier evaluation...")
             results['classifier_scores'] = self.evaluate_classifiers(target_col)
+            print("Classifier evaluation completed successfully")
         except Exception as e:
             print(f"Error in classifier evaluation: {str(e)}")
             results['classifier_scores'] = None
 
-        # Privacy metrics
         try:
+            # Privacy metrics
+            print("\nCalculating privacy metrics...")
             real_dupes, synth_dupes = self.get_duplicate_count()
             nn_mean, nn_std = self.nearest_neighbor_analysis()
+
             results['privacy'] = {
                 'Duplicate rows between sets (real/fake)': (real_dupes, synth_dupes),
                 'nearest neighbor mean': nn_mean,
                 'nearest neighbor std': nn_std
             }
+            print("Privacy metrics calculated successfully")
         except Exception as e:
             print(f"Error in privacy metrics: {str(e)}")
             results['privacy'] = None
 
-        # Correlation metrics
         try:
-            rmse, mae = self.calculate_correlation_distance()
-            results['correlation'] = {
-                'Column Correlation Distance RMSE': rmse,
-                'Column Correlation distance MAE': mae
-            }
+            # Calculate correlation metrics
+            print("\nCalculating correlation metrics...")
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) >= 2:
+                real_corr = self.real_data[numerical_cols].corr().fillna(0)
+                synth_corr = self.synthetic_data[numerical_cols].corr().fillna(0)
+
+                rmse = np.sqrt(((real_corr - synth_corr) ** 2).mean().mean())
+                mae = np.abs(real_corr - synth_corr).mean().mean()
+
+                results['correlation'] = {
+                    'Column Correlation Distance RMSE': rmse,
+                    'Column Correlation distance MAE': mae
+                }
+            else:
+                results['correlation'] = {
+                    'Column Correlation Distance RMSE': 0.0,
+                    'Column Correlation distance MAE': 0.0
+                }
+            print("Correlation metrics calculated successfully")
         except Exception as e:
             print(f"Error in correlation metrics: {str(e)}")
             results['correlation'] = None
 
-        #Statistical Similarity
-        try:
-            results['statistical_similarity'] = self.statistical_similarity()
-        except Exception as e:
-            results['statistical_similarity'] = f"Error: {str(e)}"
-
-        #Correlation Similarity
-        try:
-            results['correlation_similarity'] = self.correlation_similarity()
-        except Exception as e:
-            results['correlation_similarity'] = f"Error: {str(e)}"
-
-        #Column Statistics
-        try:
-            results['column_statistics'] = self.column_statistics()
-        except Exception as e:
-            results['column_statistics'] = f"Error: {str(e)}"
-
-        #Distribution Divergence
-        try:
-            results['divergence_metrics'] = self.calculate_distribution_divergence()
-        except Exception as e:
-            results['divergence_metrics'] = f"Error: {str(e)}"
-
+        print("\nComprehensive evaluation completed")
         return results

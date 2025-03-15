@@ -537,7 +537,7 @@ def main():
                 evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
                 # ML utility evaluation
-                with st.expander("ML Utility Evaluation"):
+                with st.expander("ML Utility Evaluation Results"):
                     # First run comprehensive evaluation
                     evaluation_results = evaluator.evaluate_all(target_col=target_col)
 
@@ -547,7 +547,7 @@ def main():
                         st.write("F1-scores and Jaccard similarities:")
                         st.dataframe(evaluation_results['classifier_scores'])
                     else:
-                        st.warning("Could not calculate classifier scores.")
+                        st.warning("Could not calculate classifier scores. Check if target column is appropriate for classification.")
 
                     # Display privacy metrics
                     st.subheader("Privacy Analysis")
@@ -559,6 +559,11 @@ def main():
                         st.write("\nNearest Neighbor Analysis:")
                         st.write(f"- Mean distance: {privacy_metrics['nearest neighbor mean']:.4f}")
                         st.write(f"- Standard deviation: {privacy_metrics['nearest neighbor std']:.4f}")
+
+                        if privacy_metrics['nearest neighbor mean'] < 0.3:
+                            st.warning("Low nearest neighbor distance indicates potential privacy concerns.")
+                        elif privacy_metrics['nearest neighbor mean'] > 0.7:
+                            st.warning("High nearest neighbor distance indicates potential quality issues.")
                     else:
                         st.warning("Could not calculate privacy metrics.")
 
@@ -569,6 +574,9 @@ def main():
                         st.write("Column Correlation Distance Metrics:")
                         st.write(f"- RMSE: {correlation_metrics['Column Correlation Distance RMSE']:.4f}")
                         st.write(f"- MAE: {correlation_metrics['Column Correlation distance MAE']:.4f}")
+
+                        if correlation_metrics['Column Correlation Distance RMSE'] > 0.3:
+                            st.warning("High correlation distance indicates significant differences in relationships between variables.")
                     else:
                         st.warning("Could not calculate correlation metrics.")
 
