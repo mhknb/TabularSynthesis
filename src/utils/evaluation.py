@@ -37,6 +37,10 @@ class DataEvaluator:
 
         # Convert numerical columns to float and handle NaN values
         for col in self.num_cols:
+            print(f"\nProcessing numerical column: {col}")
+            print(f"Original real data type: {self.real_data[col].dtype}")
+            print(f"Original synthetic data type: {self.synthetic_data[col].dtype}")
+
             self.real_data[col] = pd.to_numeric(self.real_data[col], errors='coerce').astype('float64')
             self.synthetic_data[col] = pd.to_numeric(self.synthetic_data[col], errors='coerce').astype('float64')
 
@@ -45,14 +49,28 @@ class DataEvaluator:
             self.real_data[col] = self.real_data[col].fillna(real_mean)
             self.synthetic_data[col] = self.synthetic_data[col].fillna(real_mean)
 
+            print(f"Final real data type: {self.real_data[col].dtype}")
+            print(f"Final synthetic data type: {self.synthetic_data[col].dtype}")
+            print(f"Sample values real: {self.real_data[col].head()}")
+            print(f"Sample values synthetic: {self.synthetic_data[col].head()}")
+
         # Fill NaN values in categorical columns with mode
         for col in self.cat_cols:
+            print(f"\nProcessing categorical column: {col}")
+            print(f"Original real data type: {self.real_data[col].dtype}")
+            print(f"Original synthetic data type: {self.synthetic_data[col].dtype}")
+
             mode_val = self.real_data[col].mode()[0]
             self.real_data[col] = self.real_data[col].fillna(mode_val)
             self.synthetic_data[col] = self.synthetic_data[col].fillna(mode_val)
             # Ensure categorical columns are string type
             self.real_data[col] = self.real_data[col].astype(str)
             self.synthetic_data[col] = self.synthetic_data[col].astype(str)
+
+            print(f"Final real data type: {self.real_data[col].dtype}")
+            print(f"Final synthetic data type: {self.synthetic_data[col].dtype}")
+            print(f"Sample values real: {self.real_data[col].head()}")
+            print(f"Sample values synthetic: {self.synthetic_data[col].head()}")
 
         print("\nDEBUG - After preprocessing:")
         print("Real data types:")
@@ -61,23 +79,42 @@ class DataEvaluator:
         print(self.synthetic_data.dtypes)
 
         # Initialize table evaluator
-        self.table_evaluator = TableEvaluator(
-            self.real_data, 
-            self.synthetic_data,
-            cat_cols=self.cat_cols
-        )
+        try:
+            print("\nInitializing TableEvaluator with:")
+            print(f"Real data shape: {self.real_data.shape}")
+            print(f"Synthetic data shape: {self.synthetic_data.shape}")
+            print(f"Categorical columns: {self.cat_cols}")
+
+            self.table_evaluator = TableEvaluator(
+                self.real_data, 
+                self.synthetic_data,
+                cat_cols=self.cat_cols
+            )
+            print("TableEvaluator initialized successfully")
+        except Exception as e:
+            print(f"Error initializing TableEvaluator: {str(e)}")
+            raise
 
     def evaluate_all(self, target_col: str = None) -> dict:
         """Run all table evaluator metrics"""
         try:
+            print(f"\nDEBUG - Starting evaluation with target_col: {target_col}")
+
             # Run the table evaluator
-            basic_metrics = self.table_evaluator.evaluate(target_col=target_col, verbose=False, notebook=False)
+            try:
+                print("Running basic evaluation...")
+                basic_metrics = self.table_evaluator.evaluate(target_col=target_col, verbose=False, notebook=False)
+                print("Basic evaluation completed")
+            except Exception as e:
+                print(f"Error in basic evaluation: {str(e)}")
+                return {"error": str(e)}
 
             # Create comprehensive metrics dictionary
             metrics = {}
 
             # Add visual evaluations
             try:
+                print("Generating correlation plot...")
                 fig_correlation = self.table_evaluator.correlation_plot(plot_diff=True)
                 plt.close()  # Close to prevent figure leaks
                 metrics['correlation_plot'] = fig_correlation
@@ -85,6 +122,7 @@ class DataEvaluator:
                 print(f"Error generating correlation plot: {str(e)}")
 
             try:
+                print("Generating distribution plots...")
                 figs_distributions = self.table_evaluator.plot_distributions()
                 metrics['plot_distributions'] = figs_distributions
                 plt.close('all')  # Close all figures
@@ -92,6 +130,7 @@ class DataEvaluator:
                 print(f"Error generating distribution plots: {str(e)}")
 
             try:
+                print("Generating pairwise plot...")
                 fig_pairwise = self.table_evaluator.plot_pairwise()
                 plt.close()  # Close to prevent figure leaks
                 metrics['plot_pairwise'] = fig_pairwise
@@ -104,6 +143,9 @@ class DataEvaluator:
             return metrics
         except Exception as e:
             print(f"Error in table evaluation: {str(e)}")
+            print("Full error context:")
+            import traceback
+            traceback.print_exc()
             return {"error": str(e)}
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
@@ -121,6 +163,13 @@ class DataEvaluator:
             y_synthetic = self.synthetic_data[target_column]
 
             print(f"Feature columns: {feature_cols}")
+            print(f"X_real shape: {X_real.shape}, y_real shape: {y_real.shape}")
+            print(f"X_synthetic shape: {X_synthetic.shape}, y_synthetic shape: {y_synthetic.shape}")
+            print(f"X_real data types: {X_real.dtypes}")
+            print(f"X_synthetic data types: {X_synthetic.dtypes}")
+            print(f"y_real data type: {y_real.dtype}")
+            print(f"y_synthetic data type: {y_synthetic.dtype}")
+
 
             # Split real data
             X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
@@ -150,11 +199,16 @@ class DataEvaluator:
 
             # Handle target variable
             if task_type == 'classification':
-                target_encoder = LabelEncoder()
-                target_encoder.fit(pd.concat([y_real, y_synthetic]))
-                y_train_real = target_encoder.transform(y_train_real)
-                y_test_real = target_encoder.transform(y_test_real)
-                y_synthetic = target_encoder.transform(y_synthetic)
+                try:
+                    target_encoder = LabelEncoder()
+                    target_encoder.fit(pd.concat([y_real, y_synthetic]))
+                    y_train_real = target_encoder.transform(y_train_real)
+                    y_test_real = target_encoder.transform(y_test_real)
+                    y_synthetic = target_encoder.transform(y_synthetic)
+                except Exception as e:
+                    print(f"Error encoding target variable: {str(e)}")
+                    return {"error": str(e)}
+
 
             # Initialize models
             if task_type == 'classification':
@@ -169,21 +223,25 @@ class DataEvaluator:
                 metric_name = 'r2_score'
 
             # Train and evaluate models
-            real_model.fit(X_train_real, y_train_real)
-            real_pred = real_model.predict(X_test_real)
-            real_score = metric_func(y_test_real, real_pred)
+            try:
+                real_model.fit(X_train_real, y_train_real)
+                real_pred = real_model.predict(X_test_real)
+                real_score = metric_func(y_test_real, real_pred)
 
-            synthetic_model.fit(X_synthetic, y_synthetic)
-            synthetic_pred = synthetic_model.predict(X_test_real)
-            synthetic_score = metric_func(y_test_real, synthetic_pred)
+                synthetic_model.fit(X_synthetic, y_synthetic)
+                synthetic_pred = synthetic_model.predict(X_test_real)
+                synthetic_score = metric_func(y_test_real, synthetic_pred)
 
-            relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
+                relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
 
-            return {
-                f'real_model_{metric_name}': real_score,
-                f'synthetic_model_{metric_name}': synthetic_score,
-                'relative_performance_percentage': relative_performance
-            }
+                return {
+                    f'real_model_{metric_name}': real_score,
+                    f'synthetic_model_{metric_name}': synthetic_score,
+                    'relative_performance_percentage': relative_performance
+                }
+            except Exception as e:
+                print(f"Error during model training or prediction: {str(e)}")
+                return {"error": str(e)}
 
         except Exception as e:
             print(f"Error in ML utility evaluation: {str(e)}")
