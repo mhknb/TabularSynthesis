@@ -45,11 +45,11 @@ class DataEvaluator:
             cat_cols=self.cat_cols  # categorical columns as a parameter
         )
 
-    def evaluate_all(self) -> dict:
+    def evaluate_all(self, target_col: str = None) -> dict:
         """Run all table evaluator metrics"""
         try:
             # Run the table evaluator
-            basic_metrics = self.table_evaluator.evaluate(verbose=False)
+            basic_metrics = self.table_evaluator.evaluate(target_col=target_col, verbose=False, notebook=False)
 
             # Create comprehensive metrics dictionary
             metrics = {}

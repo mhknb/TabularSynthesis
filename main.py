@@ -536,7 +536,7 @@ def main():
                 # Run table evaluator metrics
                 st.write("### Table Evaluator Analysis")
                 try:
-                    metrics = evaluator.evaluate_all()
+                    metrics = evaluator.evaluate_all(target_col=target_col)
 
                     if "error" in metrics:
                         st.error(f"Error in table evaluation: {metrics['error']}")
