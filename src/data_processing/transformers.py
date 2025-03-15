@@ -75,7 +75,32 @@ class DataTransformer:
         else:
             data_for_transform = data
 
-        if method == 'label':
+        if method == 'binary':
+            # Get unique values and create binary mapping
+            unique_values = data_for_transform.unique()
+            n_values = len(unique_values)
+            n_bits = int(np.ceil(np.log2(max(2, n_values))))  # At least 1 bit
+
+            # Create binary encodings
+            binary_codes = {}
+            for i, val in enumerate(unique_values):
+                binary_code = format(i, f'0{n_bits}b')
+                binary_codes[val] = binary_code
+
+            # Store encoding information for inverse transform
+            self.encoding_maps[data.name] = {
+                'method': 'binary',
+                'mapping': binary_codes,
+                'n_bits': n_bits,
+                'unique_values': unique_values.tolist(),
+                'has_missing': has_missing
+            }
+
+            # Convert values to their binary representation
+            transformed = data_for_transform.map(lambda x: int(''.join(binary_codes[x]), 2))
+            return transformed.astype(np.float64)
+
+        elif method == 'label':
             encoder = LabelEncoder()
             self.encoders[data.name] = encoder
             transformed = pd.Series(
@@ -147,7 +172,27 @@ class DataTransformer:
         # Handle missing values
         data_filled = data.fillna(0)
 
-        if encoding_info['method'] == 'label':
+        if encoding_info['method'] == 'binary':
+            n_bits = encoding_info['n_bits']
+            unique_values = encoding_info['unique_values']
+
+            # Convert integers back to binary strings
+            binary_values = data_filled.astype(int).map(
+                lambda x: format(x, f'0{n_bits}b')
+            )
+
+            # Create reverse mapping from binary string to original value
+            reverse_mapping = {
+                int(b, 2): val for val, b in encoding_info['mapping'].items()
+            }
+
+            # Map back to original values
+            return pd.Series(
+                binary_values.map(lambda x: unique_values[int(x, 2)]),
+                name=data.name
+            )
+
+        elif encoding_info['method'] == 'label':
             encoder = self.encoders.get(data.name)
             if encoder is None:
                 return data
