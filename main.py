@@ -19,7 +19,7 @@ from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
 from src.models.cgan import CGAN
 from src.models.tvae import TVAE
-from src.models.ctgan_model import CTGANModel # Added CTGAN import
+from src.models.ctgan import CTGAN # Added import for CTGAN
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
@@ -385,11 +385,11 @@ def main():
                             latent_dim=model_config['latent_dim'],
                             device=device
                         )
-                    elif model_config['model_type'] == 'CTGAN': # Added CTGAN model initialization
-                        gan = CTGANModel(
+                    elif model_config['model_type'] == 'CTGAN': # Added CTGAN handling
+                        gan = CTGAN(
                             input_dim=transformed_data.shape[1],
                             hidden_dim=model_config['hidden_dim'],
-                            epochs=model_config['epochs'],
+                            num_residual_blocks=model_config['num_residual_blocks'],
                             device=device
                         )
                     else:  # TableGAN
@@ -534,21 +534,6 @@ def main():
                     for col, values in stats.items():
                         st.write(f"{col}: {values:.4f}")
 
-                # One-way ANOVA test
-                with st.expander("One-way ANOVA Test Results"):
-                    try:
-                        anova_results = evaluator.anova_summary()
-                        st.dataframe(anova_results)
-                        
-                        # Highlight columns with significant differences
-                        significant_cols = anova_results[anova_results['P_value'] < 0.05]['Column'].tolist()
-                        if significant_cols:
-                            st.warning(f"Columns with significant differences (p < 0.05): {', '.join(significant_cols)}")
-                        else:
-                            st.success("No significant differences found between real and synthetic data distributions.")
-                    except Exception as e:
-                        st.error(f"Error calculating ANOVA: {str(e)}")
-
                 # Correlation similarity
                 with st.expander("Correlation Matrix Similarity"):
                     corr_sim = evaluator.correlation_similarity()
@@ -623,26 +608,19 @@ def model_config_section():
         help="Choose the type of model to use for synthetic data generation"
     )
 
-    # Add configuration options specific to CTGAN
+    # Add CTGAN-specific parameters
     if model_config['model_type'] == 'CTGAN':
-        model_config['epochs'] = st.slider(
-            "Number of Epochs",
-            min_value=10,
-            max_value=1000,
-            value=100,
-            step=10,
-            help="Number of training epochs for CTGAN"
+        model_config['num_residual_blocks'] = st.slider(
+            "Number of Residual Blocks",
+            min_value=3,
+            max_value=10,
+            value=5,
+            step=1,
+            help="Number of residual blocks in CTGAN generator"
         )
-        model_config['hidden_dim'] = st.slider(
-            "Embedding Dimension",
-            min_value=64,
-            max_value=512,
-            value=256,
-            step=64,
-            help="Size of embedding dimension in CTGAN"
-        )
-        st.info("CTGAN automatically handles batch size and learning rate optimization")
-    elif model_config['model_type'] == 'TVAE':
+
+    # Add latent dimension parameter for TVAE
+    if model_config['model_type'] == 'TVAE':
         model_config['latent_dim'] = st.slider(
             "Latent Dimension",
             min_value=32,
@@ -651,7 +629,7 @@ def model_config_section():
             step=32,
             help="Dimension of the latent space for TVAE"
         )
-    
+
     model_config['hidden_dim'] = st.slider(
         "Hidden Dimension",
         min_value=64,
