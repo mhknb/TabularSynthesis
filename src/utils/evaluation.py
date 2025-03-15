@@ -44,8 +44,7 @@ class DataEvaluator:
         self.table_evaluator = TableEvaluator(
             self.real_data,  # real data as first argument
             self.synthetic_data,  # synthetic data as second argument
-            cat_cols=self.cat_cols,  # categorical columns
-            numerical_column=self.num_cols  # numerical columns (singular form)
+            cat_cols=self.cat_cols  # categorical columns
         )
 
     def evaluate_all(self, target_col: str = None) -> dict:
