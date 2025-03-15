@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils import spectral_norm
 from src.models.base_gan import BaseGAN
+import time
 
 class WGAN(BaseGAN):
     """WGAN implementation for tabular data"""
@@ -25,7 +26,7 @@ class WGAN(BaseGAN):
         self.scheduler_d = torch.optim.lr_scheduler.StepLR(self.d_optimizer, step_size=10, gamma=0.9)
 
     def build_generator(self) -> nn.Module:
-        """Build generator network with dynamic layer sizes"""
+        """Build generator network"""
         return nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
             nn.BatchNorm1d(self.hidden_dim),
@@ -97,7 +98,7 @@ class WGAN(BaseGAN):
             # Backward and optimize
             disc_loss.backward()
             self.d_optimizer.step()
-
+            
             # Apply weight clipping to discriminator parameters
             for p in self.discriminator.parameters():
                 p.data.clamp_(-self.clip_value, self.clip_value)
@@ -120,8 +121,8 @@ class WGAN(BaseGAN):
 
         # Return metrics dictionary
         return {
-            'disc_loss': avg_disc_loss,
-            'gen_loss': gen_loss.item(),
+            'discriminator_loss': avg_disc_loss,
+            'generator_loss': gen_loss.item(),
             'wasserstein_distance': wasserstein_distance
         }
 
@@ -150,18 +151,6 @@ class WGAN(BaseGAN):
 
     def load_state_dict(self, state_dict):
         """Load state dict for model persistence"""
-        # Initialize new model with the same architecture
-        self.input_dim = state_dict['input_dim']
-        self.hidden_dim = state_dict['hidden_dim']
-        self.clip_value = state_dict['clip_value']
-        self.n_critic = state_dict['n_critic']
-        self.device = state_dict['device']
-
-        # Rebuild networks with correct dimensions
-        self.generator = self.build_generator().to(self.device)
-        self.discriminator = self.build_discriminator().to(self.device)
-
-        # Load the state dictionaries
         self.generator.load_state_dict(state_dict['generator_state'])
         self.discriminator.load_state_dict(state_dict['discriminator_state'])
         self.g_optimizer.load_state_dict(state_dict['g_optimizer_state'])
@@ -171,3 +160,9 @@ class WGAN(BaseGAN):
             self.scheduler_g.load_state_dict(state_dict['g_scheduler_state'])
         if 'd_scheduler_state' in state_dict:
             self.scheduler_d.load_state_dict(state_dict['d_scheduler_state'])
+
+        self.input_dim = state_dict['input_dim']
+        self.hidden_dim = state_dict['hidden_dim']
+        self.clip_value = state_dict['clip_value']
+        self.n_critic = state_dict['n_critic']
+        self.device = state_dict['device']
