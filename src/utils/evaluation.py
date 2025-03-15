@@ -31,11 +31,15 @@ class DataEvaluator:
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
 
+        # Identify categorical columns
+        self.cat_cols = self.real_data.select_dtypes(exclude=['int64', 'float64']).columns.tolist()
+        print(f"Categorical columns: {self.cat_cols}")
+
         # Initialize table evaluator
         self.table_evaluator = TableEvaluator(
-            real_data=self.real_data,
-            synthetic_data=self.synthetic_data,
-            cat_cols=self.real_data.select_dtypes(exclude=['int64', 'float64']).columns.tolist()
+            self.real_data,  # real data as first argument
+            self.synthetic_data,  # synthetic data as second argument
+            cat_cols=self.cat_cols  # categorical columns as a parameter
         )
 
     def evaluate_all(self) -> dict:
