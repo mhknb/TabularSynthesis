@@ -39,6 +39,12 @@ class DataEvaluator:
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
 
+        # Remove duplicates from synthetic data
+        orig_len = len(self.synthetic_data)
+        self.synthetic_data = self.synthetic_data.drop_duplicates()
+        dropped_dupes = orig_len - len(self.synthetic_data)
+        print(f"Removed {dropped_dupes} duplicate rows from synthetic data")
+
         # Fill missing values with appropriate defaults based on data type
         for col in self.real_data.columns:
             if self.real_data[col].dtype in ['int64', 'float64']:
@@ -484,22 +490,33 @@ class DataEvaluator:
 
             # Prepare features and target
             feature_cols = [col for col in self.real_data.columns if col != target_col]
-            X_real, X_synthetic = self.preprocess_data_for_distance()
-
-            # Process target column
-            target_encoder = LabelEncoder()
-            all_targets = pd.concat([self.real_data[target_col], self.synthetic_data[target_col]]).unique()
-            target_encoder.fit(all_targets)
-
-            y_real = target_encoder.transform(self.real_data[target_col])
-            y_synthetic = target_encoder.transform(self.synthetic_data[target_col])
+            X_real = self.real_data[feature_cols]
+            y_real = self.real_data[target_col]
+            X_synthetic = self.synthetic_data[feature_cols]
+            y_synthetic = self.synthetic_data[target_col]
 
             # Split real data
-            X_train, X_test, y_train, y_test = train_test_split(
+            X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
                 X_real, y_real, test_size=test_size, random_state=42
             )
 
-            print(f"Training data shapes - X: {X_train.shape}, y: {y_train.shape}")
+            # Preprocess features
+            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
+            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
+            X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
+
+            # Handle target variable
+            target_encoder = LabelEncoder()
+            unique_vals = list(set(y_real.unique()) | set(y_synthetic.unique()) | {'Other'})
+            target_encoder.fit(unique_vals)
+
+            y_train_real = pd.Series(y_train_real).map(lambda x: 'Other' if x not in unique_vals else x)
+            y_test_real = pd.Series(y_test_real).map(lambda x: 'Other' if x not in unique_vals else x)
+            y_synthetic = pd.Series(y_synthetic).map(lambda x: 'Other' if x not in unique_vals else x)
+
+            y_train_real = target_encoder.transform(y_train_real)
+            y_test_real = target_encoder.transform(y_test_real)
+            y_synthetic = target_encoder.transform(y_synthetic)
 
             # Initialize classifiers
             classifiers = {
@@ -515,35 +532,29 @@ class DataEvaluator:
                 try:
                     # Train and evaluate on real data
                     clf_real = clf.__class__(**clf.get_params())
-                    clf_real.fit(X_train, y_train)
-                    real_pred = clf_real.predict(X_test)
-                    f1_real = f1_score(y_test, real_pred, average='weighted')
+                    clf_real.fit(X_train_processed, y_train_real)
+                    real_pred = clf_real.predict(X_test_processed)
+                    f1_real = f1_score(y_test_real, real_pred, average='weighted')
 
                     # Train on synthetic and evaluate on real test
                     clf_synthetic = clf.__class__(**clf.get_params())
-                    clf_synthetic.fit(X_synthetic, y_synthetic)
-                    synthetic_pred = clf_synthetic.predict(X_test)
-                    f1_synthetic = f1_score(y_test, synthetic_pred, average='weighted')
+                    clf_synthetic.fit(X_synthetic_processed, y_synthetic)
+                    synthetic_pred = clf_synthetic.predict(X_test_processed)
+                    f1_synthetic = f1_score(y_test_real, synthetic_pred, average='weighted')
 
-                    # Calculate Jaccard similarity
+                    # Calculate Jaccard similarity between predictions
                     jaccard = len(set(real_pred) & set(synthetic_pred)) / len(set(real_pred) | set(synthetic_pred)) if len(set(real_pred) | set(synthetic_pred)) >0 else 0
 
                     print(f"{name} scores - Real: {f1_real:.4f}, Synthetic: {f1_synthetic:.4f}, Jaccard: {jaccard:.4f}")
 
-                    results.extend([
-                        {
-                            'index': f"{name}_real",
-                            'f1_real': f1_real,
-                            'f1_fake': f1_synthetic,
-                            'jaccard_similarity': jaccard
-                        },
-                        {
-                            'index': f"{name}_fake",
-                            'f1_real': f1_real,
-                            'f1_fake': f1_synthetic,
-                            'jaccard_similarity': jaccard
-                        }
-                    ])
+                    # Only add one row per classifier with both scores
+                    results.append({
+                        'index': name,
+                        'f1_real': f1_real,
+                        'f1_fake': f1_synthetic,
+                        'jaccard_similarity': jaccard
+                    })
+
                 except Exception as e:
                     print(f"Error evaluating {name}: {str(e)}")
                     continue
