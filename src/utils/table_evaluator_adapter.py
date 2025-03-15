@@ -12,11 +12,6 @@ class TableEvaluatorAdapter:
     def __init__(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame, cat_cols: Optional[List[str]] = None):
         """
         Initialize the adapter with real and synthetic data
-
-        Args:
-            real_data: DataFrame containing real data
-            synthetic_data: DataFrame containing synthetic data
-            cat_cols: List of categorical column names
         """
         print("\nDEBUG - TableEvaluatorAdapter initialization:")
         print(f"Real data shape: {real_data.shape}")
@@ -29,6 +24,12 @@ class TableEvaluatorAdapter:
         self.cat_cols = cat_cols or self._infer_categorical_columns()
 
         print(f"Categorical columns: {self.cat_cols}")
+
+        # Remove duplicates from synthetic data
+        orig_len = len(self.synthetic_data)
+        self.synthetic_data = self.synthetic_data.drop_duplicates()
+        dropped_dupes = orig_len - len(self.synthetic_data)
+        print(f"Removed {dropped_dupes} duplicate rows from synthetic data")
 
         # Print data types for debugging
         print("\nDEBUG - Data types before preprocessing:")
@@ -48,8 +49,8 @@ class TableEvaluatorAdapter:
 
         try:
             self.evaluator = TableEvaluator(
-                real=self.real_data,  # Changed from real_data to real
-                fake=self.synthetic_data,  # Changed from synthetic_data to fake
+                real=self.real_data,
+                fake=self.synthetic_data,
                 cat_cols=self.cat_cols
             )
             print("TableEvaluator initialized successfully")
@@ -73,9 +74,9 @@ class TableEvaluatorAdapter:
 
         # Handle categorical columns
         for col in self.cat_cols:
-            # Convert to string category
-            self.real_data[col] = self.real_data[col].astype(str).astype('category')
-            self.synthetic_data[col] = self.synthetic_data[col].astype(str).astype('category')
+            # Convert to category type
+            self.real_data[col] = self.real_data[col].astype('category')
+            self.synthetic_data[col] = self.synthetic_data[col].astype('category')
 
         # Handle datetime columns
         datetime_cols = self.real_data.select_dtypes(include=['datetime64']).columns
@@ -95,8 +96,8 @@ class TableEvaluatorAdapter:
                 except:
                     print(f"Converting column {col} to categorical")
                     self.cat_cols.append(col)
-                    self.real_data[col] = self.real_data[col].astype(str).astype('category')
-                    self.synthetic_data[col] = self.synthetic_data[col].astype(str).astype('category')
+                    self.real_data[col] = self.real_data[col].astype('category')
+                    self.synthetic_data[col] = self.synthetic_data[col].astype('category')
 
         # Fill any remaining NaN values
         self.real_data = self.real_data.fillna(0)
@@ -120,12 +121,6 @@ class TableEvaluatorAdapter:
     def evaluate_all(self, target_col: str) -> Dict[str, Any]:
         """
         Run comprehensive evaluation using table-evaluator
-
-        Args:
-            target_col: Target column name for ML utility evaluation
-
-        Returns:
-            Dictionary containing evaluation results
         """
         try:
             print("\nDEBUG - Running table-evaluator evaluation")
@@ -135,30 +130,55 @@ class TableEvaluatorAdapter:
             print(f"Target column type in real data: {self.real_data[target_col].dtype}")
             print(f"Target column type in synthetic data: {self.synthetic_data[target_col].dtype}")
 
-            # Get evaluation results
-            ml_scores = self.evaluator.evaluate(target_col=target_col)
-            print("Evaluation completed successfully")
+            # Convert target column to numeric if possible
+            if target_col not in self.cat_cols:
+                try:
+                    self.real_data[target_col] = pd.to_numeric(self.real_data[target_col], errors='coerce')
+                    self.synthetic_data[target_col] = pd.to_numeric(self.synthetic_data[target_col], errors='coerce')
+                    print(f"Converted target column to numeric. New dtype: {self.real_data[target_col].dtype}")
+                except Exception as e:
+                    print(f"Could not convert target column to numeric: {str(e)}")
+                    print("Adding to categorical columns")
+                    if target_col not in self.cat_cols:
+                        self.cat_cols.append(target_col)
+                    self.real_data[target_col] = self.real_data[target_col].astype('category')
+                    self.synthetic_data[target_col] = self.synthetic_data[target_col].astype('category')
 
-            return {
-                'classifier_scores': ml_scores.get('Classifier F1-scores', None),
-                'privacy': {
-                    'Duplicate rows between sets (real/fake)': ml_scores.get('Duplicate rows between sets (real/fake)', (0, 0)),
-                    'nearest neighbor mean': ml_scores.get('nearest neighbor mean', 0),
-                    'nearest neighbor std': ml_scores.get('nearest neighbor std', 0)
-                },
-                'correlation': {
-                    'Column Correlation Distance RMSE': ml_scores.get('Column Correlation Distance RMSE', 0),
-                    'Column Correlation distance MAE': ml_scores.get('Column Correlation distance MAE', 0)
-                },
-                'similarity': {
-                    'basic statistics': ml_scores.get('basic statistics', 0),
-                    'Correlation column correlations': ml_scores.get('Correlation column correlations', 0),
-                    'Mean Correlation between fake and real columns': ml_scores.get('Mean Correlation between fake and real columns', 0),
-                    '1 - MAPE Estimator results': ml_scores.get('1 - MAPE Estimator results', 0),
-                    '1 - MAPE 5 PCA components': ml_scores.get('1 - MAPE 5 PCA components', 0),
-                    'Similarity Score': ml_scores.get('Similarity Score', 0)
+            try:
+                # Get evaluation results
+                print("Starting evaluation...")
+                ml_scores = self.evaluator.evaluate(target_col=target_col)
+                print("Evaluation completed successfully")
+
+                return {
+                    'classifier_scores': ml_scores.get('Classifier F1-scores', None),
+                    'privacy': {
+                        'Duplicate rows between sets (real/fake)': ml_scores.get('Duplicate rows between sets (real/fake)', (0, 0)),
+                        'nearest neighbor mean': ml_scores.get('nearest neighbor mean', 0),
+                        'nearest neighbor std': ml_scores.get('nearest neighbor std', 0)
+                    },
+                    'correlation': {
+                        'Column Correlation Distance RMSE': ml_scores.get('Column Correlation Distance RMSE', 0),
+                        'Column Correlation distance MAE': ml_scores.get('Column Correlation distance MAE', 0)
+                    },
+                    'similarity': {
+                        'basic statistics': ml_scores.get('basic statistics', 0),
+                        'Correlation column correlations': ml_scores.get('Correlation column correlations', 0),
+                        'Mean Correlation between fake and real columns': ml_scores.get('Mean Correlation between fake and real columns', 0),
+                        '1 - MAPE Estimator results': ml_scores.get('1 - MAPE Estimator results', 0),
+                        '1 - MAPE 5 PCA components': ml_scores.get('1 - MAPE 5 PCA components', 0),
+                        'Similarity Score': ml_scores.get('Similarity Score', 0)
+                    }
                 }
-            }
+            except Exception as e:
+                print(f"Error during evaluation: {str(e)}")
+                print("Data sample causing the error:")
+                print("Real data head:")
+                print(self.real_data.head())
+                print("\nSynthetic data head:")
+                print(self.synthetic_data.head())
+                raise
+
         except Exception as e:
             print(f"Error in evaluation: {str(e)}")
             print("Detailed error context:")
