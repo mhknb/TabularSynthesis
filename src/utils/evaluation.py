@@ -9,6 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 import seaborn as sns
+from table_evaluator.plots import plot_mean_std, cdf
 
 class DataEvaluator:
     """Evaluates quality of synthetic data compared to real data"""
@@ -25,7 +26,7 @@ class DataEvaluator:
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
-        
+
         # Handle the case when no common columns exist
         if not common_cols:
             print("WARNING: No common columns found between real and synthetic data!")
@@ -33,16 +34,65 @@ class DataEvaluator:
             self.real_data['_dummy'] = 0
             self.synthetic_data['_dummy'] = 0
             common_cols = ['_dummy']
-            
+
         # Only use columns that exist in both datasets
         self.real_data = self.real_data[common_cols]
         self.synthetic_data = self.synthetic_data[common_cols]
-        
+
         # Fill missing values to prevent NoneType comparison errors
         self.real_data = self.real_data.fillna(0)
         self.synthetic_data = self.synthetic_data.fillna(0)
 
-        print(f"Aligned synthetic data columns: {self.synthetic_data.columns.tolist()}")
+        print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
+
+    def evaluate(self) -> dict:
+        """Run comprehensive evaluation including plots"""
+        try:
+            print("\nGenerating evaluation results...")
+
+            # Create figure for mean and std plots
+            fig_mean_std = plt.figure(figsize=(12, 6))
+            plot_mean_std(self.real_data, self.synthetic_data, show=False)
+            plt.title("Absolute Log Mean and STDs of numeric data")
+
+            # Create figure for cumulative sums
+            fig_cumsums = plt.figure(figsize=(15, 10))
+            nr_cols = 4
+            nr_charts = len(self.real_data.columns)
+            nr_rows = max(1, nr_charts // nr_cols)
+            nr_rows = nr_rows + 1 if nr_charts % nr_cols != 0 else nr_rows
+
+            for i, col in enumerate(self.real_data.columns):
+                plt.subplot(nr_rows, nr_cols, i + 1)
+                cdf(
+                    self.real_data[col],
+                    self.synthetic_data[col],
+                    xlabel=col,
+                    ylabel='Cumsum',
+                    show=False
+                )
+
+            plt.tight_layout()
+
+            # Get other evaluation metrics
+            stats_results = self.statistical_similarity()
+            corr_sim = self.correlation_similarity()
+            col_stats = self.column_statistics()
+
+            evaluation_results = {
+                'plots': [fig_mean_std, fig_cumsums],
+                'statistics': stats_results,
+                'correlation': corr_sim,
+                'column_stats': col_stats
+            }
+
+            return evaluation_results
+
+        except Exception as e:
+            print(f"Error in evaluation: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
