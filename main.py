@@ -526,61 +526,52 @@ def main():
 
                 # Evaluate synthetic data
                 st.subheader("Data Quality Evaluation")
-                evaluator = DataEvaluator(df, result_df)
 
-                # Statistical tests
-                with st.expander("Statistical Similarity Tests"):
-                    stats = evaluator.statistical_similarity()
-                    for col, values in stats.items():
-                        st.write(f"{col}: {values:.4f}")
+                # Filter both dataframes to only include selected columns
+                eval_real_df = df[selected_columns]
+                eval_synthetic_df = result_df[selected_columns]
 
-                # Correlation similarity
-                with st.expander("Correlation Matrix Similarity"):
-                    corr_sim = evaluator.correlation_similarity()
-                    st.write(f"Correlation Similarity Score: {corr_sim:.4f}")
+                evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
-                # Column statistics
-                with st.expander("Column-wise Statistics Comparison"):
-                    col_stats = evaluator.column_statistics()
-                    st.dataframe(col_stats)
+                # Run table evaluator metrics
+                st.write("### Table Evaluator Analysis")
+                metrics = evaluator.evaluate_all()
 
-                # ML utility evaluation
-                with st.expander("ML Utility Evaluation (TSTR)"):
-                    ml_metrics = evaluator.evaluate_ml_utility(
-                        target_column=target_col,
-                        task_type=task_type
-                    )
+                # Display plots from table evaluator
+                if 'correlation_plot' in metrics:
+                    st.write("#### Correlation Analysis")
+                    st.pyplot(metrics['correlation_plot'])
+
+                if 'plot_distributions' in metrics:
+                    st.write("#### Distribution Analysis")
+                    for fig in metrics['plot_distributions']:
+                        st.pyplot(fig)
+
+                if 'plot_pairwise' in metrics:
+                    st.write("#### Pairwise Relationships")
+                    st.pyplot(metrics['plot_pairwise'])
+
+                # Display metrics
+                st.write("#### Statistical Metrics")
+                metrics_to_display = {k: v for k, v in metrics.items() 
+                                   if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                st.dataframe(pd.DataFrame([metrics_to_display]))
+
+                # ML Utility evaluation (kept from previous implementation)
+                st.write("### ML Utility Evaluation")
+                ml_metrics = evaluator.evaluate_ml_utility(
+                    target_column=target_col,
+                    task_type=task_type
+                )
+
+                if "error" not in ml_metrics:
                     st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
                     for metric, value in ml_metrics.items():
                         st.write(f"{metric}: {value:.4f}")
+                else:
+                    st.error(f"Error in ML evaluation: {ml_metrics['error']}")
 
-                # Distribution plots
-                with st.expander("Distribution Comparisons"):
-                    st.subheader("Cumulative Distribution Plots")
-                    fig_cumulative = evaluator.plot_cumulative_distributions()
-                    if fig_cumulative:
-                        st.pyplot(fig_cumulative)
 
-                    st.subheader("Density Distribution Plots")
-                    fig_density = evaluator.plot_distributions()
-                    st.pyplot(fig_density)
-
-                # Add new divergence metrics section
-                with st.expander("Distribution Divergence Metrics"):
-                    metrics = evaluator.evaluate_all(target_column=target_col, task_type=task_type)
-                    st.subheader("Jensen-Shannon Divergence (JSD)")
-                    st.write("JSD measures the similarity between probability distributions (0 = identical, 1 = completely different)")
-                    for col, value in metrics['divergence_metrics'].items():
-                        if 'jsd' in col:
-                            st.write(f"{col.replace('_jsd', '')}: {value:.4f}")
-
-                    st.subheader("Wasserstein Distance (WD)")
-                    st.write("WD measures the minimum 'cost' of transforming one distribution into another")
-                    for col, value in metrics['divergence_metrics'].items():
-                        if 'wasserstein' in col:
-                            st.write(f"{col.replace('_wasserstein', '')}: {value:.4f}")
-
-                # Display results
                 st.success("Synthetic data generated successfully!")
                 st.subheader("Generated Data Preview")
                 st.dataframe(result_df.head())
