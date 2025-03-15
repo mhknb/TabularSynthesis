@@ -204,16 +204,6 @@ def main():
         help="Choose 'classification' for categorical targets, 'regression' for continuous targets"
     )
 
-    # Add sample size selection
-    num_samples = st.slider(
-        "Number of synthetic samples to generate",
-        min_value=100,
-        max_value=10000,
-        value=len(df),
-        step=100,
-        help="Select how many synthetic data samples to generate"
-    )
-
     if st.button("Generate Synthetic Data"):
         with st.spinner("Preparing data..."):
             try:
@@ -296,7 +286,7 @@ def main():
 
                             # Generate samples using Modal
                             synthetic_data = modal_gan.generate(
-                                num_samples=num_samples,
+                                num_samples=len(df),
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim']
                             )
