@@ -539,7 +539,7 @@ def main():
                 # ML utility evaluation
                 with st.expander("ML Utility Evaluation"):
                     # First run comprehensive evaluation
-                    evaluation_results = evaluator.evaluate_all(target_column=target_col)
+                    evaluation_results = evaluator.evaluate_all(target_col=target_col)
 
                     # Display classifier scores
                     st.subheader("Classifier Performance Comparison")
@@ -578,28 +578,6 @@ def main():
                         target_column=target_col,
                         task_type=task_type
                     )
-
-                    # Real model (baseline) results
-                    st.write("Real Data Model (Baseline)")
-                    baseline_metric = next((key for key in ml_metrics.keys() if key.startswith('real_model_')), None)
-                    if baseline_metric:
-                        st.write(f"Performance: {ml_metrics[baseline_metric]:.4f}")
-
-                    # TSTR results
-                    st.write("Synthetic Data Model (TSTR)")
-                    synthetic_metric = next((key for key in ml_metrics.keys() if key.startswith('synthetic_model_')), None)
-                    if synthetic_metric:
-                        st.write(f"Performance: {ml_metrics[synthetic_metric]:.4f}")
-                        if 'synthetic_relative_performance' in ml_metrics:
-                            st.write(f"Relative to baseline: {ml_metrics['synthetic_relative_performance']:.1f}%")
-
-                    # Combined training results
-                    st.write("Combined Data Model (Real + Synthetic)")
-                    combined_metric = next((key for key in ml_metrics.keys() if key.startswith('combined_model_')), None)
-                    if combined_metric:
-                        st.write(f"Performance: {ml_metrics[combined_metric]:.4f}")
-                        if 'combined_relative_performance' in ml_metrics:
-                            st.write(f"Relative to baseline: {ml_metrics['combined_relative_performance']:.1f}%")
 
 
                 # Display results
