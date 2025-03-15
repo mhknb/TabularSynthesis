@@ -71,9 +71,13 @@ class DataTransformer:
                 'stds': stds
             }
             
-            # Return concatenated β and α values
-            transformed = np.concatenate([probabilities, alphas], axis=1)
-            return pd.Series(transformed.flatten(), name=data.name)
+            # Normalize output dimensions to match other methods
+            # Use only the highest probability mode and its normalized value
+            highest_prob_mode = np.argmax(probabilities, axis=1)
+            mode_probs = probabilities[np.arange(len(data)), highest_prob_mode]
+            transformed = np.column_stack([mode_probs, alphas])
+            transformed = transformed.mean(axis=1)  # Combine to single value
+            return pd.Series(transformed, name=data.name)
 
             # Use imputed data for further transformations
             data_for_transform = pd.Series(imputed_data, name=data.name)
