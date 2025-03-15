@@ -19,8 +19,6 @@ class DataEvaluator:
         """Initialize with real and synthetic datasets"""
         print("\nDEBUG - DataEvaluator initialization:")
         print(f"Real data columns: {real_data.columns.tolist()}")
-        print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
-        print(f"Real data shape: {real_data.shape}")
         print(f"Synthetic data shape: {synthetic_data.shape}")
 
         # Find common columns for evaluation
@@ -39,8 +37,8 @@ class DataEvaluator:
 
         # Convert numerical columns to float and handle NaN values
         for col in self.num_cols:
-            self.real_data[col] = self.real_data[col].astype(float)
-            self.synthetic_data[col] = self.synthetic_data[col].astype(float)
+            self.real_data[col] = pd.to_numeric(self.real_data[col], errors='coerce').astype('float64')
+            self.synthetic_data[col] = pd.to_numeric(self.synthetic_data[col], errors='coerce').astype('float64')
 
             # Fill NaN values with mean for numerical columns
             real_mean = self.real_data[col].mean()
@@ -52,6 +50,15 @@ class DataEvaluator:
             mode_val = self.real_data[col].mode()[0]
             self.real_data[col] = self.real_data[col].fillna(mode_val)
             self.synthetic_data[col] = self.synthetic_data[col].fillna(mode_val)
+            # Ensure categorical columns are string type
+            self.real_data[col] = self.real_data[col].astype(str)
+            self.synthetic_data[col] = self.synthetic_data[col].astype(str)
+
+        print("\nDEBUG - After preprocessing:")
+        print("Real data types:")
+        print(self.real_data.dtypes)
+        print("\nSynthetic data types:")
+        print(self.synthetic_data.dtypes)
 
         # Initialize table evaluator
         self.table_evaluator = TableEvaluator(
