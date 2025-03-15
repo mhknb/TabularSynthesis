@@ -9,6 +9,8 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from table_evaluator import TableEvaluator
 
+__all__ = ['DataEvaluator']
+
 class DataEvaluator:
     """Evaluates quality of synthetic data compared to real data"""
 
