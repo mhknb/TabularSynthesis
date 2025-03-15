@@ -5,6 +5,7 @@ import numpy as np
 from src.models.table_gan import TableGAN
 import wandb
 import time
+import os
 
 # Define app and shared resources at module level
 app = modal.App()
@@ -20,7 +21,7 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
-    # Initialize wandb first, following the example pattern
+    # Initialize wandb first
     wandb.init(project="sd1")
     wandb.config = {
         "model_type": model_type,
@@ -33,11 +34,11 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
+        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
 
         # Convert data to tensor and optimize batch size
         train_data = torch.FloatTensor(data.values)
-        batch_size = max(gan.min_batch_size, min(batch_size, len(train_data) // 4))
+        batch_size = min(batch_size, len(train_data) // 4)
 
         train_loader = torch.utils.data.DataLoader(
             train_data, 
@@ -91,7 +92,17 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                 best_loss = current_loss
                 patience_counter = 0
                 try:
-                    torch.save(gan.state_dict(), "/model/table_gan.pt")
+                    # Clear existing model file if it exists
+                    model_path = "/model/table_gan.pt"
+                    if os.path.exists(model_path):
+                        os.remove(model_path)
+
+                    # Save model state with input dimensions
+                    torch.save({
+                        'state_dict': gan.state_dict(),
+                        'input_dim': input_dim,
+                        'hidden_dim': hidden_dim
+                    }, model_path)
                     volume.commit()
                 except Exception as e:
                     print(f"Warning: Failed to save model: {str(e)}")
@@ -107,7 +118,6 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
         raise e
 
     finally:
-        # Always ensure wandb run is finished
         wandb.finish()
 
     return avg_losses if 'avg_losses' in locals() else None
@@ -121,21 +131,44 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
     """Generate synthetic samples using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
 
     try:
-        gan.load_state_dict(torch.load("/model/table_gan.pt"))
+        # Load model with dimensions check
+        model_path = "/model/table_gan.pt"
+        if not os.path.exists(model_path):
+            raise RuntimeError("No saved model found")
+
+        checkpoint = torch.load(model_path)
+        saved_input_dim = checkpoint.get('input_dim')
+        saved_hidden_dim = checkpoint.get('hidden_dim')
+
+        if saved_input_dim != input_dim or saved_hidden_dim != hidden_dim:
+            raise RuntimeError(f"Model dimension mismatch. Expected input_dim={input_dim}, hidden_dim={hidden_dim}, "
+                             f"but saved model has input_dim={saved_input_dim}, hidden_dim={saved_hidden_dim}")
+
+        # Initialize model with correct dimensions
+        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+        gan.load_state_dict(checkpoint['state_dict'])
+
+        # Generate samples
         synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
         return synthetic_data
+
     except Exception as e:
         raise RuntimeError(f"Failed to generate samples: {str(e)}")
 
 class ModalGAN:
     """Class for managing Modal GAN operations"""
 
+    def __init__(self):
+        self.input_dim = None
+        self.hidden_dim = None
+
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str = 'TableGAN'):
         """Train GAN model using Modal"""
         try:
+            self.input_dim = input_dim
+            self.hidden_dim = hidden_dim
             with app.run():
                 return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size, model_type)
         except Exception as e:
