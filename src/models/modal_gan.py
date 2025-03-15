@@ -22,11 +22,10 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
 )
 def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
-    # Clear any existing model file first
-    model_path = "/model/table_gan.pt"
-    if os.path.exists(model_path):
-        os.remove(model_path)
-        print("Removed existing model file")
+    # Create model directory if it doesn't exist
+    model_dir = "/model/checkpoints"
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, "latest_model.pt")
 
     # Initialize wandb
     wandb.init(project="sd1")
@@ -88,49 +87,53 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
                          for k in epoch_losses[0].keys()}
             current_loss = sum(avg_losses.values())
 
+            # Log to wandb
             wandb.log({
                 "epoch": epoch,
                 "average_loss": current_loss,
                 **avg_losses
             })
 
-            # Save best model with retries
+            # Save model if improved
             if current_loss < best_loss:
                 best_loss = current_loss
                 patience_counter = 0
 
-                # Try saving model multiple times
-                max_retries = 3
-                for retry in range(max_retries):
-                    try:
-                        # Save model state with dimensions
-                        model_save_data = {
-                            'state_dict': gan.state_dict(),
-                            'input_dim': input_dim,
-                            'hidden_dim': hidden_dim,
-                            'model_type': model_type
-                        }
-                        torch.save(model_save_data, model_path)
+                # Save model state
+                try:
+                    # Prepare model data
+                    model_data = {
+                        'state_dict': gan.state_dict(),
+                        'input_dim': input_dim,
+                        'hidden_dim': hidden_dim,
+                        'model_type': model_type,
+                        'epoch': epoch,
+                        'loss': current_loss
+                    }
 
-                        # Verify the save was successful
-                        if os.path.exists(model_path):
-                            try:
-                                # Try loading the model to verify it's valid
-                                checkpoint = torch.load(model_path)
-                                if all(k in checkpoint for k in ['state_dict', 'input_dim', 'hidden_dim']):
-                                    print(f"Successfully saved and verified model with input_dim={input_dim}, hidden_dim={hidden_dim}")
-                                    volume.commit()
-                                    break
-                            except Exception as ve:
-                                print(f"Model verification failed on attempt {retry + 1}: {str(ve)}")
-                                if retry == max_retries - 1:
-                                    raise
-                                continue
-                    except Exception as e:
-                        print(f"Failed to save model on attempt {retry + 1}: {str(e)}")
-                        if retry == max_retries - 1:
-                            raise
-                        time.sleep(1)  # Wait before retrying
+                    # Save to temporary file first
+                    temp_path = os.path.join(model_dir, "temp_model.pt")
+                    torch.save(model_data, temp_path)
+
+                    # Verify the save was successful
+                    try:
+                        # Test load the model
+                        test_load = torch.load(temp_path)
+                        if all(k in test_load for k in ['state_dict', 'input_dim', 'hidden_dim']):
+                            # If verification successful, move to final location
+                            os.replace(temp_path, model_path)
+                            print(f"Successfully saved model at epoch {epoch+1}")
+                            volume.commit()
+                        else:
+                            raise ValueError("Saved model file is incomplete")
+                    except Exception as ve:
+                        print(f"Model verification failed: {str(ve)}")
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                        raise
+                except Exception as e:
+                    print(f"Failed to save model: {str(e)}")
+                    raise
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
@@ -145,21 +148,6 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     finally:
         wandb.finish()
 
-    # Final save attempt before returning
-    if not os.path.exists(model_path):
-        print("Warning: Model file not found after training, attempting final save...")
-        try:
-            torch.save({
-                'state_dict': gan.state_dict(),
-                'input_dim': input_dim,
-                'hidden_dim': hidden_dim,
-                'model_type': model_type
-            }, model_path)
-            volume.commit()
-            print("Final model save successful")
-        except Exception as e:
-            print(f"Final model save failed: {str(e)}")
-
     return avg_losses if 'avg_losses' in locals() else None
 
 @app.function(
@@ -171,52 +159,41 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
 def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
     """Generate synthetic samples using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model_path = "/model/table_gan.pt"
+    model_path = "/model/checkpoints/latest_model.pt"
 
     try:
-        # Check if model exists and is valid
         if not os.path.exists(model_path):
-            raise RuntimeError("No saved model found")
+            raise RuntimeError(f"No saved model found at {model_path}")
 
-        try:
-            # Load and validate model
-            checkpoint = torch.load(model_path)
-            if not all(k in checkpoint for k in ['state_dict', 'input_dim', 'hidden_dim']):
-                raise RuntimeError("Invalid model checkpoint structure")
+        print("Loading model...")
+        checkpoint = torch.load(model_path)
 
-            saved_input_dim = checkpoint['input_dim']
-            saved_hidden_dim = checkpoint['hidden_dim']
+        # Verify model dimensions
+        if checkpoint['input_dim'] != input_dim:
+            raise ValueError(f"Input dimension mismatch: saved={checkpoint['input_dim']}, requested={input_dim}")
+        if checkpoint['hidden_dim'] != hidden_dim:
+            raise ValueError(f"Hidden dimension mismatch: saved={checkpoint['hidden_dim']}, requested={hidden_dim}")
 
-            # Strict dimension checking
-            if saved_input_dim != input_dim:
-                raise RuntimeError(f"Input dimension mismatch: model={saved_input_dim}, requested={input_dim}")
-            if saved_hidden_dim != hidden_dim:
-                raise RuntimeError(f"Hidden dimension mismatch: model={saved_hidden_dim}, requested={hidden_dim}")
+        # Initialize model
+        gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+        gan.load_state_dict(checkpoint['state_dict'])
+        gan.eval()
 
-            # Initialize and load model
-            print(f"Loading model with input_dim={input_dim}, hidden_dim={hidden_dim}")
-            gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
-            gan.load_state_dict(checkpoint['state_dict'])
-            gan.eval()  # Set to evaluation mode
+        print("Generating samples...")
+        with torch.no_grad():
+            synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
 
-            # Generate samples
-            with torch.no_grad():
-                synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
+        # Ensure output is in valid range
+        if not np.all((synthetic_data >= 0) & (synthetic_data <= 1)):
+            print("Clipping generated data to [0,1] range")
+            synthetic_data = np.clip(synthetic_data, 0, 1)
 
-            # Validate output
-            if not (0 <= synthetic_data.all() <= 1):
-                print("Warning: Generated data contains values outside [0,1] range")
-                synthetic_data = np.clip(synthetic_data, 0, 1)
-
-            return synthetic_data
-
-        except Exception as e:
-            print(f"Error loading or using model: {str(e)}")
-            raise RuntimeError(f"Failed to use saved model: {str(e)}")
+        return synthetic_data
 
     except Exception as e:
-        print(f"Generation error: {str(e)}")
-        raise RuntimeError(f"Failed to generate samples: {str(e)}")
+        error_msg = f"Failed to generate samples: {str(e)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
 
 class ModalGAN:
     """Class for managing Modal GAN operations"""
@@ -228,7 +205,7 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str = 'TableGAN'):
         """Train GAN model using Modal"""
         try:
-            print(f"Starting Modal training with input_dim={input_dim}, hidden_dim={hidden_dim}")
+            print(f"Starting Modal training with input_dim={input_dim}")
             self.input_dim = input_dim
             self.hidden_dim = hidden_dim
             with app.run():
