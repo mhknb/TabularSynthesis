@@ -23,26 +23,13 @@ class DataEvaluator:
         print(f"Real data shape: {real_data.shape}")
         print(f"Synthetic data shape: {synthetic_data.shape}")
 
-        self.real_data = real_data.copy()
-        self.synthetic_data = synthetic_data.copy()
-
         # Find common columns for evaluation
         common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
         print(f"Common columns for evaluation: {common_cols}")
 
         # Only use columns that exist in both datasets
-        self.real_data = self.real_data[common_cols]
-        self.synthetic_data = self.synthetic_data[common_cols]
-
-        # Convert any numeric-like columns to float
-        for col in common_cols:
-            try:
-                # Try to convert to numeric, if possible
-                self.real_data[col] = pd.to_numeric(self.real_data[col], errors='coerce')
-                self.synthetic_data[col] = pd.to_numeric(self.synthetic_data[col], errors='coerce')
-            except:
-                # If conversion fails, leave as is (categorical)
-                continue
+        self.real_data = real_data[common_cols].copy()
+        self.synthetic_data = synthetic_data[common_cols].copy()
 
         # Identify categorical and numerical columns
         self.cat_cols = self.real_data.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
@@ -50,11 +37,27 @@ class DataEvaluator:
         print(f"Categorical columns: {self.cat_cols}")
         print(f"Numerical columns: {self.num_cols}")
 
+        # Convert numerical columns to float and handle NaN values
+        for col in self.num_cols:
+            self.real_data[col] = self.real_data[col].astype(float)
+            self.synthetic_data[col] = self.synthetic_data[col].astype(float)
+
+            # Fill NaN values with mean for numerical columns
+            real_mean = self.real_data[col].mean()
+            self.real_data[col] = self.real_data[col].fillna(real_mean)
+            self.synthetic_data[col] = self.synthetic_data[col].fillna(real_mean)
+
+        # Fill NaN values in categorical columns with mode
+        for col in self.cat_cols:
+            mode_val = self.real_data[col].mode()[0]
+            self.real_data[col] = self.real_data[col].fillna(mode_val)
+            self.synthetic_data[col] = self.synthetic_data[col].fillna(mode_val)
+
         # Initialize table evaluator
         self.table_evaluator = TableEvaluator(
-            self.real_data,  # real data as first argument
-            self.synthetic_data,  # synthetic data as second argument
-            cat_cols=self.cat_cols  # categorical columns
+            self.real_data, 
+            self.synthetic_data,
+            cat_cols=self.cat_cols
         )
 
     def evaluate_all(self, target_col: str = None) -> dict:
