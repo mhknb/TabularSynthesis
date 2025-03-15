@@ -18,31 +18,31 @@ class DataEvaluator:
 
     def __init__(self, real_data: pd.DataFrame, synthetic_data: pd.DataFrame):
         """Initialize with real and synthetic datasets"""
-        print("\nDEBUG - DataEvaluator initialization:")
-        print(f"Real data columns: {real_data.columns.tolist()}")
-        print(f"Synthetic data columns: {synthetic_data.columns.tolist()}")
+        try:
+            print("\nDEBUG - DataEvaluator initialization:")
+            print(f"Real data shape: {real_data.shape}")
+            print(f"Synthetic data shape: {synthetic_data.shape}")
 
-        self.real_data = real_data.copy()
-        self.synthetic_data = synthetic_data.copy()
+            self.real_data = real_data.copy()
+            self.synthetic_data = synthetic_data.copy()
 
-        # Find common columns for evaluation
-        common_cols = list(set(real_data.columns) & set(synthetic_data.columns))
-        print(f"Common columns for evaluation: {common_cols}")
+            # Convert all numeric columns to float64
+            numeric_columns = real_data.select_dtypes(include=['int64', 'float64']).columns
+            for col in numeric_columns:
+                self.real_data[col] = self.real_data[col].astype(float)
+                self.synthetic_data[col] = self.synthetic_data[col].astype(float)
 
-        # Handle the case when no common columns exist
-        if not common_cols:
-            print("WARNING: No common columns found between real and synthetic data!")
-            self.real_data['_dummy'] = 0
-            self.synthetic_data['_dummy'] = 0
-            common_cols = ['_dummy']
+            # Fill missing values
+            self.real_data = self.real_data.fillna(0)
+            self.synthetic_data = self.synthetic_data.fillna(0)
 
-        # Only use columns that exist in both datasets
-        self.real_data = self.real_data[common_cols]
-        self.synthetic_data = self.synthetic_data[common_cols]
+            print("DataEvaluator initialized successfully")
+            print(f"Final data types - Real:\n{self.real_data.dtypes}")
+            print(f"Final data types - Synthetic:\n{self.synthetic_data.dtypes}")
 
-        # Fill missing values
-        self.real_data = self.real_data.fillna(0)
-        self.synthetic_data = self.synthetic_data.fillna(0)
+        except Exception as e:
+            print(f"Error in initialization: {str(e)}")
+            raise
 
     def evaluate(self) -> dict:
         """Run comprehensive evaluation including plots"""
@@ -147,7 +147,7 @@ class DataEvaluator:
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
         """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
         try:
-            print(f"\nDEBUG - ML Utility Evaluation:")
+            print("\nDEBUG - ML Utility Evaluation:")
             print(f"Target column: {target_column}")
             print(f"Task type: {task_type}")
 
@@ -409,22 +409,27 @@ class DataEvaluator:
         return results
 
     def generate_evaluation_plots(self):
-        """Generate plots for evaluation with memory optimization"""
+        """Generate evaluation plots with enhanced error handling"""
         try:
             print("\nGenerating evaluation plots...")
-            plots = []
 
-            # Generate mean-std plot
+            # Get numeric columns
+            numeric_cols = self.real_data.select_dtypes(include=['float64', 'int64']).columns
+            if len(numeric_cols) == 0:
+                print("No numeric columns found for plotting")
+                return None
+
+            # Create figure for mean and std plots
             fig_mean_std = plt.figure(figsize=(12, 6))
             ax = fig_mean_std.add_subplot(111)
 
-            # Calculate statistics
-            real_means = np.log(np.abs(self.real_data.mean() + 1e-10))  # Add small constant to avoid log(0)
-            synth_means = np.log(np.abs(self.synthetic_data.mean() + 1e-10))
-            real_stds = np.log(self.real_data.std() + 1e-10)
-            synth_stds = np.log(self.synthetic_data.std() + 1e-10)
+            # Calculate statistics safely
+            real_means = np.log(np.abs(self.real_data[numeric_cols].mean() + 1e-10))
+            synth_means = np.log(np.abs(self.synthetic_data[numeric_cols].mean() + 1e-10))
+            real_stds = np.log(self.real_data[numeric_cols].std() + 1e-10)
+            synth_stds = np.log(self.synthetic_data[numeric_cols].std() + 1e-10)
 
-            x = range(len(self.real_data.columns))
+            x = range(len(numeric_cols))
             width = 0.35
 
             # Plot bars
@@ -434,18 +439,17 @@ class DataEvaluator:
             ax.bar([i + width/2 for i in x], synth_stds, width, bottom=synth_means, label='Synthetic Std', color='red', alpha=0.3)
 
             ax.set_xticks(x)
-            ax.set_xticklabels(self.real_data.columns, rotation=45, ha='right')
+            ax.set_xticklabels(numeric_cols, rotation=45, ha='right')
             ax.set_title('Absolute Log Mean and STDs of numeric data')
             ax.legend()
             plt.tight_layout()
-            plots.append(fig_mean_std)
 
-            # Generate cumulative sums plot
+            # Create figure for cumulative sums
             fig_cumsums = plt.figure(figsize=(15, 10))
-            cols_per_row = min(4, len(self.real_data.columns))
-            rows = (len(self.real_data.columns) - 1) // cols_per_row + 1
+            cols_per_row = min(4, len(numeric_cols))
+            rows = (len(numeric_cols) - 1) // cols_per_row + 1
 
-            for i, col in enumerate(self.real_data.columns):
+            for i, col in enumerate(numeric_cols):
                 ax = fig_cumsums.add_subplot(rows, cols_per_row, i + 1)
 
                 # Calculate CDFs efficiently
@@ -462,19 +466,19 @@ class DataEvaluator:
                 # Plot CDFs using subset of points
                 ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue')
                 ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red')
-
                 ax.set_title(col)
                 ax.set_xlabel('Value')
                 ax.set_ylabel('Cumulative Probability')
                 ax.legend()
 
             plt.tight_layout()
-            plots.append(fig_cumsums)
 
-            return plots
+            print("Successfully generated evaluation plots")
+            return [fig_mean_std, fig_cumsums]
 
         except Exception as e:
             print(f"Error generating evaluation plots: {str(e)}")
+            print("Stack trace:")
             import traceback
             traceback.print_exc()
             return None
