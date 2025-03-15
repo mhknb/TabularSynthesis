@@ -1,18 +1,12 @@
 """
-Evaluation module integrating table-evaluator functionality
+Evaluation module for synthetic data quality assessment
 """
 import numpy as np
 import pandas as pd
 from scipy import stats
-from scipy.spatial.distance import jensenshannon, cdist
+from scipy.spatial.distance import jensenshannon
 from scipy.stats import wasserstein_distance
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, f1_score, r2_score
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-import seaborn as sns
-
 from .table_evaluator_adapter import TableEvaluatorAdapter
 
 class DataEvaluator:
@@ -54,7 +48,7 @@ class DataEvaluator:
 
         print(f"Final evaluation columns: {self.real_data.columns.tolist()}")
 
-    def evaluate_all(self, target_col: str) -> dict:
+    def evaluate(self, target_col: str) -> dict:
         """Run comprehensive evaluation using table-evaluator"""
         return self._table_evaluator.evaluate_all(target_col)
 
@@ -62,7 +56,6 @@ class DataEvaluator:
         """Generate visual evaluation plots using table-evaluator"""
         return self._table_evaluator.get_visual_evaluation()
 
-    # Keep existing helper methods for backward compatibility
     def calculate_jsd(self, real_col: pd.Series, synthetic_col: pd.Series) -> float:
         """Calculate Jensen-Shannon Divergence between real and synthetic data distributions"""
         real_hist, bins = np.histogram(real_col, bins=50, density=True)
