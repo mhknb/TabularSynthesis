@@ -1,3 +1,6 @@
+"""
+Data transformation utilities for preprocessing different data types
+"""
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, RobustScaler, LabelEncoder
@@ -8,46 +11,32 @@ class DataTransformer:
     """Handles data transformations for different column types"""
 
     def __init__(self):
+        """Initialize transformation components"""
         self.encoders = {}
         self.scalers = {}
         self.imputers = {}
-        self.encoding_maps = {}  # Store encoding information for inverse transform
-        self.data_ranges = {}  # Store original data ranges for validation
-        self.missing_flags = {}  # Store information about missing values
+        self.encoding_maps = {}
+        self.data_ranges = {}
+        self.missing_flags = {}
 
-    def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
-        """Transform continuous data using specified method with missing value handling"""
-        if data is None:
-            raise ValueError(f"None data provided for column transformation")
+    def transform_continuous(self, data: pd.Series, method: str = 'standard') -> pd.Series:
+        """Transform continuous data with specified method"""
+        if data is None or data.empty:
+            raise ValueError(f"Invalid data provided for transformation")
 
-        if data.empty:
-            raise ValueError(f"Empty data series provided for column {data.name}")
-
-        # Create missing value flag if needed
+        # Handle missing values
         has_missing = data.isnull().any()
         if has_missing:
             self.missing_flags[data.name] = data.isnull().astype(int)
-
-            # Create and fit imputer (mean imputation for continuous)
             imputer = SimpleImputer(strategy='mean')
-            # Ensure data is reshaped properly and not empty
-            valid_data = data.values.reshape(-1, 1)
-            if len(valid_data) == 0:
-                raise ValueError(f"No valid data after reshaping for column {data.name}")
-
-            imputed_data = imputer.fit_transform(valid_data).flatten()
+            data_reshaped = data.values.reshape(-1, 1)
+            imputed_data = imputer.fit_transform(data_reshaped).flatten()
             self.imputers[data.name] = imputer
-
-            # Use imputed data for further transformations
             data_for_transform = pd.Series(imputed_data, name=data.name)
         else:
             data_for_transform = data
 
-        # Verify data is not empty after transformation
-        if data_for_transform.empty:
-            raise ValueError(f"No data available for transformation in column {data.name}")
-
-        # Store original data range for this column
+        # Store original range
         self.data_ranges[data.name] = {
             'min': data_for_transform.min(),
             'max': data_for_transform.max(),
@@ -55,8 +44,9 @@ class DataTransformer:
             'has_missing': has_missing
         }
 
+        # Scale data
         if method == 'minmax':
-            scaler = MinMaxScaler(feature_range=(-1, 1))  # Use (-1,1) for GAN compatibility
+            scaler = MinMaxScaler(feature_range=(-1, 1))
         elif method == 'standard':
             scaler = StandardScaler()
         elif method == 'robust':
@@ -65,160 +55,57 @@ class DataTransformer:
             raise ValueError(f"Unknown scaling method: {method}")
 
         self.scalers[data.name] = scaler
+        transformed = scaler.fit_transform(data_for_transform.values.reshape(-1, 1)).flatten()
+        return pd.Series(transformed, name=data.name)
 
-        # Ensure data is properly shaped for transformation
-        shaped_data = data_for_transform.values.reshape(-1, 1)
-        if len(shaped_data) == 0:
-            raise ValueError(f"No data available after reshaping in column {data.name}")
+    def transform_categorical(self, data: pd.Series, method: str = 'label') -> pd.Series:
+        """Transform categorical data with specified method"""
+        if data is None or data.empty:
+            raise ValueError("Invalid data provided for transformation")
 
-        transformed_data = scaler.fit_transform(shaped_data).flatten()
-        return pd.Series(transformed_data, name=data.name)
-
-    def transform_categorical(self, data: pd.Series, method: str = 'binary') -> pd.Series:
-        """Transform categorical data using specified method with missing value handling"""
-        # Create missing value flag if needed
+        # Handle missing values
         has_missing = data.isnull().any()
         if has_missing:
             self.missing_flags[data.name] = data.isnull().astype(int)
-
-            # Create and fit imputer (most frequent imputation for categorical)
             imputer = SimpleImputer(strategy='most_frequent')
-            imputed_data = imputer.fit_transform(data.values.reshape(-1, 1)).flatten()
+            data_reshaped = data.values.reshape(-1, 1)
+            imputed_data = imputer.fit_transform(data_reshaped).flatten()
             self.imputers[data.name] = imputer
-
-            # Use imputed data for further transformations
             data_for_transform = pd.Series(imputed_data, name=data.name)
         else:
             data_for_transform = data
 
-        if method == 'binary':
-            # Binary encoding
-            unique_values = data_for_transform.unique()
-            n_values = len(unique_values)
-            n_bits = int(np.ceil(np.log2(n_values)))
-            value_to_binary = {val: format(i, f'0{n_bits}b') for i, val in enumerate(unique_values)}
-
-            # Store encoding information
-            self.encoding_maps[data.name] = {
-                'method': 'binary',
-                'value_to_binary': value_to_binary,
-                'n_bits': n_bits,
-                'has_missing': has_missing
-            }
-
-            # Transform to binary string then to integer
-            binary_str = data_for_transform.map(value_to_binary)
-            transformed = pd.Series(binary_str.map(lambda x: int(x, 2)), name=data.name)
-            return transformed
-
-        elif method == 'label':
+        if method == 'label':
             encoder = LabelEncoder()
             self.encoders[data.name] = encoder
-            transformed = pd.Series(encoder.fit_transform(data_for_transform), name=data.name)
+            transformed = pd.Series(
+                encoder.fit_transform(data_for_transform.astype(str)),
+                name=data.name
+            )
             self.encoding_maps[data.name] = {
                 'method': 'label',
                 'categories': encoder.classes_,
-                'num_categories': len(encoder.classes_),
                 'has_missing': has_missing
             }
-            return transformed
+            return transformed.astype(np.float64)
+
         elif method == 'onehot':
             dummies = pd.get_dummies(data_for_transform, prefix=data.name)
             self.encoding_maps[data.name] = {
                 'method': 'onehot',
-                'columns': list(dummies.columns),
-                'original_categories': data_for_transform.unique(),
-                'num_categories': len(data_for_transform.unique()),
+                'columns': dummies.columns.tolist(),
                 'has_missing': has_missing
             }
-            return pd.Series(data_for_transform.factorize()[0], name=data.name)
+            return dummies
+
         else:
             raise ValueError(f"Unknown encoding method: {method}")
 
-    def inverse_transform_continuous(self, data: pd.Series) -> pd.Series:
-        """Inverse transform continuous data with range validation"""
-        scaler = self.scalers.get(data.name)
-        if scaler is None:
-            # Instead of raising an error, return the original data
-            # This handles excluded columns that might be reintroduced
-            return data
-
-        # Check for None values and handle them
-        if data.isnull().any():
-            # Fill None values with 0 before transformation
-            data = data.fillna(0)
-
-        # Inverse transform
-        transformed_data = scaler.inverse_transform(data.values.reshape(-1, 1)).flatten()
-
-        # Get original data range
-        data_range = self.data_ranges.get(data.name)
-        if data_range:
-            # Clamp values to original range, handling potential None values
-            min_val = data_range.get('min')
-            max_val = data_range.get('max')
-
-            if min_val is not None and max_val is not None:
-                transformed_data = np.clip(
-                    transformed_data,
-                    min_val,
-                    max_val
-                )
-
-            # Convert to original dtype if needed
-            if data_range.get('dtype') in [np.int32, np.int64, int]:
-                transformed_data = np.round(transformed_data).astype(data_range['dtype'])
-
-        return pd.Series(transformed_data, name=data.name)
-
-    def inverse_transform_categorical(self, data: pd.Series) -> pd.Series:
-        """Inverse transform categorical data"""
-        # Handle None values in the data
-        if data.isnull().all():
-            return data
-
-        encoding_info = self.encoding_maps.get(data.name)
-        if encoding_info is None:
-            # Instead of raising an error, return the original data
-            # This handles excluded columns that might be reintroduced
-            return data
-
-        # Fill any None values with 0 before transformation
-        data_filled = data.fillna(0)
-
-        if encoding_info['method'] == 'label':
-            encoder = self.encoders.get(data.name)
-            if encoder is None:
-                return data_filled.astype(str)
-
-            # Ensure values are within valid range
-            values = np.clip(
-                np.round(data_filled.values),
-                0,
-                len(encoding_info['categories']) - 1
-            ).astype(int)
-
-            return pd.Series(
-                encoder.inverse_transform(values),
-                name=data.name
-            )
-        elif encoding_info['method'] == 'onehot':
-            values = np.clip(
-                np.round(data_filled.values),
-                0,
-                encoding_info['num_categories'] - 1
-            ).astype(int)
-
-            return pd.Series(
-                encoding_info['original_categories'][values],
-                name=data.name
-            )
-
-        # For unknown methods, return the original data instead of raising an error
-        return data
-
     def transform_datetime(self, data: pd.Series) -> pd.DataFrame:
         """Transform datetime into multiple features"""
+        if data is None or data.empty:
+            raise ValueError("Invalid data provided for transformation")
+
         dt_series = pd.to_datetime(data)
         return pd.DataFrame({
             f"{data.name}_year": dt_series.dt.year,
@@ -226,3 +113,68 @@ class DataTransformer:
             f"{data.name}_day": dt_series.dt.day,
             f"{data.name}_dayofweek": dt_series.dt.dayofweek
         })
+
+    def inverse_transform_continuous(self, data: pd.Series) -> pd.Series:
+        """Inverse transform continuous data"""
+        scaler = self.scalers.get(data.name)
+        if scaler is None:
+            return data
+
+        # Handle missing values
+        if data.isnull().any():
+            data = data.fillna(0)
+
+        # Inverse transform
+        transformed = scaler.inverse_transform(data.values.reshape(-1, 1)).flatten()
+
+        # Restore original range if available
+        data_range = self.data_ranges.get(data.name)
+        if data_range:
+            if data_range.get('dtype') in [np.int32, np.int64, int]:
+                transformed = np.round(transformed).astype(data_range['dtype'])
+
+        return pd.Series(transformed, name=data.name)
+
+    def inverse_transform_categorical(self, data: pd.Series) -> pd.Series:
+        """Inverse transform categorical data"""
+        if data.isnull().all():
+            return data
+
+        encoding_info = self.encoding_maps.get(data.name)
+        if encoding_info is None:
+            return data
+
+        # Handle missing values
+        data_filled = data.fillna(0)
+
+        if encoding_info['method'] == 'label':
+            encoder = self.encoders.get(data.name)
+            if encoder is None:
+                return data
+
+            # Ensure values are within valid range
+            values = np.clip(
+                data_filled.astype(int),
+                0,
+                len(encoding_info['categories']) - 1
+            )
+
+            return pd.Series(
+                encoder.inverse_transform(values),
+                name=data.name
+            )
+
+        elif encoding_info['method'] == 'onehot':
+            # Reconstruct from one-hot columns
+            columns = encoding_info.get('columns', [])
+            if not columns:
+                return data
+
+            max_idx = data_filled.astype(int)
+            max_idx = np.clip(max_idx, 0, len(columns) - 1)
+            return pd.Series(
+                [columns[i].split('_')[-1] for i in max_idx],
+                name=data.name
+            )
+
+        return data

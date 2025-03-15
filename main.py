@@ -1,19 +1,41 @@
-import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+# Add debug logging for imports
+print("Python version:", sys.version)
+print("Current working directory:", os.getcwd())
+print("sys.path:", sys.path)
+
+try:
+    import scipy
+    print("Successfully imported scipy version:", scipy.__version__)
+except ImportError as e:
+    print("Failed to import scipy:", str(e))
+
+try:
+    import numpy as np
+    print("Successfully imported numpy version:", np.__version__)
+except ImportError as e:
+    print("Failed to import numpy:", str(e))
+
+try:
+    from src.data_processing.transformers import DataTransformer
+    print("Successfully imported DataTransformer")
+except ImportError as e:
+    print("Failed to import DataTransformer:", str(e))
+    print("sys.path at time of error:", sys.path)
+
+import streamlit as st
+import torch
+import pandas as pd
 import wandb #added for wandb integration
 
 # Configure wandb defaults
 os.environ["WANDB_ENTITY"] = "smilai"
 os.environ["WANDB_PROJECT"] = "sd1"
 
-import streamlit as st
-import torch
-import pandas as pd
-import numpy as np
 from src.data_processing.data_loader import DataLoader
-from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
 from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
