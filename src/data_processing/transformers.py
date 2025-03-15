@@ -19,8 +19,8 @@ class DataTransformer:
         self.data_ranges = {}
         self.missing_flags = {}
 
-    def transform_continuous(self, data: pd.Series, method: str = 'standard') -> pd.Series:
-        """Transform continuous data with specified method"""
+    def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
+        """Transform continuous data using specified method with missing value handling"""
         if data is None or data.empty:
             raise ValueError(f"Invalid data provided for transformation")
 
@@ -44,18 +44,13 @@ class DataTransformer:
             'has_missing': has_missing
         }
 
-        # Scale data
-        if method == 'minmax':
-            scaler = MinMaxScaler(feature_range=(-1, 1))
-        elif method == 'standard':
-            scaler = StandardScaler()
-        elif method == 'robust':
-            scaler = RobustScaler()
-        else:
-            raise ValueError(f"Unknown scaling method: {method}")
-
+        # Always use MinMaxScaler for GAN compatibility
+        scaler = MinMaxScaler(feature_range=(0, 1))
         self.scalers[data.name] = scaler
         transformed = scaler.fit_transform(data_for_transform.values.reshape(-1, 1)).flatten()
+
+        # Ensure values are strictly between 0 and 1
+        transformed = np.clip(transformed, 0, 1)
         return pd.Series(transformed, name=data.name)
 
     def transform_categorical(self, data: pd.Series, method: str = 'label') -> pd.Series:
@@ -75,44 +70,37 @@ class DataTransformer:
         else:
             data_for_transform = data
 
-        if method == 'binary':
-            # Get unique values and create binary mapping
+        if method == 'label':
+            encoder = LabelEncoder()
+            self.encoders[data.name] = encoder
+            transformed = encoder.fit_transform(data_for_transform.astype(str))
+
+            # Normalize to [0,1] range for GAN
+            transformed = transformed / (len(encoder.classes_) - 1)
+
+            self.encoding_maps[data.name] = {
+                'method': 'label',
+                'categories': encoder.classes_,
+                'num_classes': len(encoder.classes_),
+                'has_missing': has_missing
+            }
+            return pd.Series(transformed, name=data.name)
+
+        elif method == 'binary':
             unique_values = data_for_transform.unique()
             n_values = len(unique_values)
-            n_bits = int(np.ceil(np.log2(max(2, n_values))))  # At least 1 bit
+            # Normalize binary values to 0,1
+            value_map = {val: i/max(1, n_values-1) for i, val in enumerate(unique_values)}
 
-            # Create binary encodings
-            binary_codes = {}
-            for i, val in enumerate(unique_values):
-                binary_code = format(i, f'0{n_bits}b')
-                binary_codes[val] = binary_code
-
-            # Store encoding information for inverse transform
             self.encoding_maps[data.name] = {
                 'method': 'binary',
-                'mapping': binary_codes,
-                'n_bits': n_bits,
+                'mapping': value_map,
                 'unique_values': unique_values.tolist(),
                 'has_missing': has_missing
             }
 
-            # Convert values to their binary representation
-            transformed = data_for_transform.map(lambda x: int(''.join(binary_codes[x]), 2))
-            return transformed.astype(np.float64)
-
-        elif method == 'label':
-            encoder = LabelEncoder()
-            self.encoders[data.name] = encoder
-            transformed = pd.Series(
-                encoder.fit_transform(data_for_transform.astype(str)),
-                name=data.name
-            )
-            self.encoding_maps[data.name] = {
-                'method': 'label',
-                'categories': encoder.classes_,
-                'has_missing': has_missing
-            }
-            return transformed.astype(np.float64)
+            transformed = data_for_transform.map(value_map)
+            return pd.Series(transformed, name=data.name)
 
         elif method == 'onehot':
             dummies = pd.get_dummies(data_for_transform, prefix=data.name)
@@ -132,11 +120,18 @@ class DataTransformer:
             raise ValueError("Invalid data provided for transformation")
 
         dt_series = pd.to_datetime(data)
+
+        # Extract and normalize features
+        year = (dt_series.dt.year - dt_series.dt.year.min()) / max(1, dt_series.dt.year.max() - dt_series.dt.year.min())
+        month = (dt_series.dt.month - 1) / 11  # 1-12 -> 0-1
+        day = (dt_series.dt.day - 1) / 30  # 1-31 -> 0-1
+        dayofweek = dt_series.dt.dayofweek / 6  # 0-6 -> 0-1
+
         return pd.DataFrame({
-            f"{data.name}_year": dt_series.dt.year,
-            f"{data.name}_month": dt_series.dt.month,
-            f"{data.name}_day": dt_series.dt.day,
-            f"{data.name}_dayofweek": dt_series.dt.dayofweek
+            f"{data.name}_year": year,
+            f"{data.name}_month": month,
+            f"{data.name}_day": day,
+            f"{data.name}_dayofweek": dayofweek
         })
 
     def inverse_transform_continuous(self, data: pd.Series) -> pd.Series:
@@ -149,8 +144,9 @@ class DataTransformer:
         if data.isnull().any():
             data = data.fillna(0)
 
-        # Inverse transform
-        transformed = scaler.inverse_transform(data.values.reshape(-1, 1)).flatten()
+        # Ensure values are in range [0,1] before inverse transform
+        data_clipped = np.clip(data.values, 0, 1)
+        transformed = scaler.inverse_transform(data_clipped.reshape(-1, 1)).flatten()
 
         # Restore original range if available
         data_range = self.data_ranges.get(data.name)
@@ -172,50 +168,38 @@ class DataTransformer:
         # Handle missing values
         data_filled = data.fillna(0)
 
-        if encoding_info['method'] == 'binary':
-            n_bits = encoding_info['n_bits']
-            unique_values = encoding_info['unique_values']
-
-            # Convert integers back to binary strings
-            binary_values = data_filled.astype(int).map(
-                lambda x: format(x, f'0{n_bits}b')
-            )
-
-            # Create reverse mapping from binary string to original value
-            reverse_mapping = {
-                int(b, 2): val for val, b in encoding_info['mapping'].items()
-            }
-
-            # Map back to original values
-            return pd.Series(
-                binary_values.map(lambda x: unique_values[int(x, 2)]),
-                name=data.name
-            )
-
-        elif encoding_info['method'] == 'label':
+        if encoding_info['method'] == 'label':
             encoder = self.encoders.get(data.name)
             if encoder is None:
                 return data
 
-            # Ensure values are within valid range
-            values = np.clip(
-                data_filled.astype(int),
-                0,
-                len(encoding_info['categories']) - 1
-            )
+            # Scale back from [0,1] to class indices
+            num_classes = encoding_info['num_classes']
+            indices = np.round(data_filled * (num_classes - 1)).astype(int)
+            indices = np.clip(indices, 0, num_classes - 1)
 
             return pd.Series(
-                encoder.inverse_transform(values),
+                encoder.inverse_transform(indices),
                 name=data.name
             )
 
+        elif encoding_info['method'] == 'binary':
+            # Find closest matching value
+            unique_values = encoding_info['unique_values']
+            mapping = encoding_info['mapping']
+            reverse_map = {v: k for k, v in mapping.items()}
+
+            def find_nearest(val):
+                return reverse_map[min(mapping.values(), key=lambda x: abs(x - val))]
+
+            return data_filled.map(find_nearest)
+
         elif encoding_info['method'] == 'onehot':
-            # Reconstruct from one-hot columns
             columns = encoding_info.get('columns', [])
             if not columns:
                 return data
 
-            max_idx = data_filled.astype(int)
+            max_idx = np.round(data_filled * (len(columns) - 1)).astype(int)
             max_idx = np.clip(max_idx, 0, len(columns) - 1)
             return pd.Series(
                 [columns[i].split('_')[-1] for i in max_idx],
