@@ -420,10 +420,10 @@ class DataEvaluator:
                 return None
                 
             print(f"Processing {n_cols} categorical columns")
-        
-        # Group columns by feature type based on common prefixes or patterns in column names
-        # This helps organize related fields together as shown in the example image
-        column_groups = {}
+            
+            # Group columns by feature type based on common prefixes or patterns in column names
+            # This helps organize related fields together as shown in the example image
+            column_groups = {}
         # Check for different prefix patterns in column names
         for col in categorical_cols:
             # Look for common naming patterns like prefixes with underscores or other separators
