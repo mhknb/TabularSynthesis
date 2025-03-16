@@ -136,8 +136,12 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str = 'TableGAN'):
         """Train GAN model using Modal"""
         try:
+            # Convert data to a list of lists for better serialization
+            serializable_data = data.reset_index(drop=True).to_dict('records')
+            
             with app.run():
-                return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size, model_type)
+                # Inside Modal, we'll convert back to DataFrame
+                return train_gan_remote.remote(serializable_data, input_dim, hidden_dim, epochs, batch_size, model_type)
         except Exception as e:
             if "timeout" in str(e).lower():
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")

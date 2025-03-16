@@ -434,21 +434,24 @@ def main():
                         for epoch in range(model_config['epochs']):
                             epoch_metrics = {}
                             for i, batch_data in enumerate(train_loader):
-                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+                                metrics = gan.train_step(batch_data)
                                 epoch_metrics.update(metrics)
 
                             # Update progress
                             progress = (epoch + 1) / model_config['epochs']
                             progress_bar.progress(progress)
-                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {epoch_metrics['disc_loss']:.4f}, Gen Loss: {epoch_metrics['gen_loss']:.4f}")
+                            # Access appropriate metric names based on model output
+                            d_loss = epoch_metrics.get('discriminator_loss', epoch_metrics.get('disc_loss', 0))
+                            g_loss = epoch_metrics.get('generator_loss', epoch_metrics.get('gen_loss', 0))
+                            epoch_status.text(f"Epoch {epoch+1}/{model_config['epochs']} - Disc Loss: {d_loss:.4f}, Gen Loss: {g_loss:.4f}")
 
                         # Save the trained model
                         model_dir = "models"
                         os.makedirs(model_dir, exist_ok=True)
                         torch.save(gan.state_dict(), os.path.join(model_dir, f"{model_config['model_type'].lower()}_model.pt"))
 
-                        # Finish wandb run if it's a WGAN
-                        if model_config['model_type'] == 'WGAN':
+                        # Finish wandb run if the model has a finish_wandb method
+                        if hasattr(gan, 'finish_wandb'):
                             gan.finish_wandb()
 
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
