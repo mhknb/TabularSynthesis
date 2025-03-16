@@ -607,7 +607,7 @@ def main():
                         with st.spinner("Generating categorical distribution plots..."):
                             cat_plots = evaluator.plot_categorical_cdf()
                             if cat_plots:
-                                st.write("### Categorical Feature Distributions")
+                                st.write("### Categorical Feature Distributions (Table Evaluator Style)")
                                 for plot in cat_plots:
                                     st.pyplot(plot)
                                     plt.close(plot)  # Clean up memory
