@@ -695,6 +695,8 @@ class DataEvaluator:
                             fig.savefig(f"{save_path}_{group_name}.png")
                             plt.close(fig)
                 figures.extend(fig_list)
+            except Exception as e:
+                print(f"Error processing categorical columns: {str(e)}")
 
             # Get numeric columns
             numeric_cols = self.real_data.select_dtypes(include=['float64', 'int64']).columns
