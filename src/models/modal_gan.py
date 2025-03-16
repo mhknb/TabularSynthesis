@@ -12,11 +12,9 @@ app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 # Create base image with required dependencies and proper sequence for local modules
 # First install all dependencies
-base_image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
-# Create new image with the Python source directory added as copy=True
-image = base_image.copy()
-# Add the src directory to make models accessible from remote functions
-image = image.add_local_dir(local_dir="./src", remote_dir="/root/src", copy=True)
+image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
+# Add the src directory to make models accessible from remote functions with copy=True
+image = image.add_local_dir("./src", "/root/src", copy=True)
 
 # Add helper functions to handle numpy serialization
 def serialize_numpy(data):
@@ -182,7 +180,30 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int):
     # Import all necessary libraries first
     import torch
     import numpy as np
-    from src.models.table_gan import TableGAN  # Make sure we import the proper model
+    import sys
+    
+    # Add paths to system path to ensure modules can be found
+    sys.path.append('/root')
+    sys.path.append('/root/src')
+    
+    try:
+        # Try importing directly
+        from src.models.table_gan import TableGAN
+    except ImportError:
+        # Fall back to importing from models directly
+        try:
+            from models.table_gan import TableGAN
+        except ImportError:
+            # Try one more approach
+            print("Attempting to find TableGAN in alternate locations...")
+            import os
+            print(f"Current directory: {os.getcwd()}")
+            print(f"Directory contents: {os.listdir('.')}")
+            if os.path.exists('/root/src'):
+                print(f"/root/src contents: {os.listdir('/root/src')}")
+                if os.path.exists('/root/src/models'):
+                    print(f"/root/src/models contents: {os.listdir('/root/src/models')}")
+            raise
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
@@ -231,6 +252,10 @@ class ModalGAN:
             # Fall back to local generation if modal fails
             print("Falling back to local training...")
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            
+            # Make sure to import TableGAN properly
+            from src.models.table_gan import TableGAN
+            
             gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
             # Generate data locally
             synthetic_data = gan.generate_samples(num_samples).cpu().numpy()

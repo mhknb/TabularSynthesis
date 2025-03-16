@@ -6,11 +6,9 @@ import time
 app = modal.App()
 
 # Create base image with proper dependencies 
-base_image = modal.Image.debian_slim().pip_install("wandb")
-# Create image with proper approach for handling local files
-image = base_image.copy()
-# Add current directory as a mounted directory with copy=True
-image = image.add_local_dir(".", remote_dir="/root/app", copy=True)
+image = modal.Image.debian_slim().pip_install("wandb")
+# Add current directory to the image (remote_path is the default argument)
+image = image.add_local_dir(".", "/root/app", copy=True)
 
 @app.function(
     image=image,
