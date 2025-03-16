@@ -477,60 +477,50 @@ class DataEvaluator:
                         ax = flat_axes[i]
 
                         # Get value counts and convert to proportions with error handling
-                        real_counts = self.real_data[col].value_counts(normalize=True)
-                        synth_counts = self.synthetic_data[col].value_counts(normalize=True)
-
-                        if real_counts.empty or synth_counts.empty:
-                            print(f"Warning: Empty counts for column {col}")
+                        # Get sorted values for real and synthetic data
+                        real_values = self.real_data[col].sort_values().values
+                        synth_values = self.synthetic_data[col].sort_values().values
+                        
+                        if len(real_values) == 0 or len(synth_values) == 0:
+                            print(f"Warning: Empty values for column {col}")
                             continue
 
-                    # Combine categories and ensure consistent ordering
-                    all_categories = sorted(set(real_counts.index) | set(synth_counts.index))
+                        # Calculate cumulative probabilities (like in TableEvaluator)
+                        real_y = np.arange(1, len(real_values) + 1) / len(real_values)
+                        synth_y = np.arange(1, len(synth_values) + 1) / len(synth_values)
+                        
+                        # Plot sorted values against cumulative probabilities
+                        ax.plot(real_values, real_y, linestyle='none', marker='o', 
+                              label='Real', color='darkblue', markersize=8)
+                        ax.plot(synth_values, synth_y, linestyle='none', marker='o', 
+                              label='Fake', color='sandybrown', markersize=8, alpha=0.5)
 
-                    # Create arrays for the cumulative distributions
-                    real_values = np.zeros(len(all_categories))
-                    synth_values = np.zeros(len(all_categories))
+                        # Set the plot limits and grid
+                        ax.set_ylim(0, 1.05)
+                        ax.grid(True, linestyle='--', alpha=0.7)
 
-                    # Fill in values for each category
-                    for j, category in enumerate(all_categories):
-                        real_values[j] = real_counts.get(category, 0)
-                        synth_values[j] = synth_counts.get(category, 0)
+                        # Customize plot
+                        ax.set_title(col)
+                        ax.set_xlabel('')  # Categories shown below
+                        ax.set_ylabel('Cumsum')
 
-                    # Convert to cumulative sums
-                    real_cumsum = np.cumsum(real_values)
-                    synth_cumsum = np.cumsum(synth_values)
+                        # Set x-ticks based on unique values
+                        unique_values = sorted(self.real_data[col].unique())
+                    
+                        if len(unique_values) <= 10:
+                            ax.set_xticks(unique_values)
+                            ax.set_xticklabels(unique_values, rotation=45, ha='right', fontsize=8)
+                        else:
+                            # Show subset of values
+                            step = max(1, len(unique_values) // 5)
+                            indices = list(range(0, len(unique_values), step))
+                            selected_values = [unique_values[i] for i in indices]
+                            ax.set_xticks(selected_values)
+                            ax.set_xticklabels(selected_values, rotation=45, ha='right', fontsize=8)
 
-                    # Plot the cumulative distributions using markers only (no lines) to match example
-                    ax.plot(range(len(all_categories)), real_cumsum, linestyle='none', marker='o', 
-                          label='Real', color='darkblue', markersize=8)
-                    ax.plot(range(len(all_categories)), synth_cumsum, linestyle='none', marker='o', 
-                          label='Fake', color='sandybrown', markersize=8, alpha=0.5)
-
-                    # Set the plot limits and grid
-                    ax.set_ylim(0, 1.05)
-                    ax.set_xlim(-0.5, len(all_categories) - 0.5)
-                    ax.grid(True, linestyle='--', alpha=0.7)
-
-                    # Customize plot
-                    ax.set_title(col)
-                    ax.set_xlabel('')  # Categories shown below
-                    ax.set_ylabel('Cumsum')
-
-                    # Show category names only if there aren't too many
-                    if len(all_categories) <= 10:
-                        ax.set_xticks(range(len(all_categories)))
-                        ax.set_xticklabels(all_categories, rotation=45, ha='right', fontsize=8)
-                    else:
-                        # Just show a few ticks to avoid overcrowding
-                        step = max(1, len(all_categories) // 5)
-                        indices = range(0, len(all_categories), step)
-                        categories = [all_categories[i] for i in indices]
-                        ax.set_xticks(indices)
-                        ax.set_xticklabels(categories, rotation=45, ha='right', fontsize=8)
-
-                    # Add a legend but only to the first plot to avoid repetition
-                    if i == 0:
-                        ax.legend(loc='upper left')
+                        # Add a legend but only to the first plot to avoid repetition
+                        if i == 0:
+                            ax.legend(loc='upper left')
 
                 except Exception as e:
                     print(f"Error plotting column {col}: {str(e)}")
@@ -604,43 +594,43 @@ class DataEvaluator:
                         for i, col in enumerate(cols):
                             try:
                                 ax = flat_axes[i]
-                                real_counts = self.real_data[col].value_counts(normalize=True)
-                                synth_counts = self.synthetic_data[col].value_counts(normalize=True)
-                                if real_counts.empty or synth_counts.empty:
-                                    print(f"Warning: Empty counts for column {col}")
+                                # Get sorted values for real and synthetic data
+                                real_values = self.real_data[col].sort_values().values
+                                synth_values = self.synthetic_data[col].sort_values().values
+                                
+                                if len(real_values) == 0 or len(synth_values) == 0:
+                                    print(f"Warning: Empty values for column {col}")
                                     continue
 
-                                all_categories = sorted(set(real_counts.index) | set(synth_counts.index))
-                                real_values = np.zeros(len(all_categories))
-                                synth_values = np.zeros(len(all_categories))
-
-                                for j, category in enumerate(all_categories):
-                                    real_values[j] = real_counts.get(category, 0)
-                                    synth_values[j] = synth_counts.get(category, 0)
-                                real_cumsum = np.cumsum(real_values)
-                                synth_cumsum = np.cumsum(synth_values)
+                                # Calculate cumulative probabilities (like in TableEvaluator)
+                                real_y = np.arange(1, len(real_values) + 1) / len(real_values)
+                                synth_y = np.arange(1, len(synth_values) + 1) / len(synth_values)
                                 
-                                # Updated plotting style: scatter plots with no connecting lines
-                                ax.plot(range(len(all_categories)), real_cumsum, linestyle='none', marker='o', 
+                                # Plot sorted values against cumulative probabilities
+                                ax.plot(real_values, real_y, linestyle='none', marker='o', 
                                      label='Real', color='darkblue', markersize=8)
-                                ax.plot(range(len(all_categories)), synth_cumsum, linestyle='none', marker='o', 
+                                ax.plot(synth_values, synth_y, linestyle='none', marker='o', 
                                      label='Fake', color='sandybrown', markersize=8, alpha=0.7)
                                 
                                 ax.set_ylim(0, 1.05)
-                                ax.set_xlim(-0.5, len(all_categories) - 0.5)
                                 ax.grid(True, linestyle='--', alpha=0.7)
                                 ax.set_title(col)
                                 ax.set_xlabel('')
                                 ax.set_ylabel('Cumsum')
-                                if len(all_categories) <= 10:
-                                    ax.set_xticks(range(len(all_categories)))
-                                    ax.set_xticklabels(all_categories, rotation=45, ha='right', fontsize=8)
+                                
+                                # Set x-ticks based on unique values
+                                unique_values = sorted(self.real_data[col].unique())
+                                
+                                if len(unique_values) <= 10:
+                                    ax.set_xticks(unique_values)
+                                    ax.set_xticklabels(unique_values, rotation=45, ha='right', fontsize=8)
                                 else:
-                                    step = max(1, len(all_categories) // 5)
-                                    indices = range(0, len(all_categories), step)
-                                    categories = [all_categories[i] for i in indices]
-                                    ax.set_xticks(indices)
-                                    ax.set_xticklabels(categories, rotation=45, ha='right', fontsize=8)
+                                    # Show subset of values
+                                    step = max(1, len(unique_values) // 5)
+                                    indices = list(range(0, len(unique_values), step))
+                                    selected_values = [unique_values[i] for i in indices]
+                                    ax.set_xticks(selected_values)
+                                    ax.set_xticklabels(selected_values, rotation=45, ha='right', fontsize=8)
                                 if i == 0:
                                     ax.legend(loc='upper left')
                             except Exception as e:
@@ -663,41 +653,43 @@ class DataEvaluator:
                         for i, col in enumerate(cols):
                             try:
                                 ax = axes[0]
-                                real_counts = self.real_data[col].value_counts(normalize=True)
-                                synth_counts = self.synthetic_data[col].value_counts(normalize=True)
-                                if real_counts.empty or synth_counts.empty:
-                                    print(f"Warning: Empty counts for column {col}")
-                                    continue
-                                all_categories = sorted(set(real_counts.index) | set(synth_counts.index))
-                                real_values = np.zeros(len(all_categories))
-                                synth_values = np.zeros(len(all_categories))
-                                for j, category in enumerate(all_categories):
-                                    real_values[j] = real_counts.get(category, 0)
-                                    synth_values[j] = synth_counts.get(category, 0)
-                                real_cumsum = np.cumsum(real_values)
-                                synth_cumsum = np.cumsum(synth_values)
+                                # Get sorted values for real and synthetic data
+                                real_values = self.real_data[col].sort_values().values
+                                synth_values = self.synthetic_data[col].sort_values().values
                                 
-                                # Updated plotting style: scatter plots with no connecting lines
-                                ax.plot(range(len(all_categories)), real_cumsum, linestyle='none', marker='o', 
+                                if len(real_values) == 0 or len(synth_values) == 0:
+                                    print(f"Warning: Empty values for column {col}")
+                                    continue
+
+                                # Calculate cumulative probabilities (like in TableEvaluator)
+                                real_y = np.arange(1, len(real_values) + 1) / len(real_values)
+                                synth_y = np.arange(1, len(synth_values) + 1) / len(synth_values)
+                                
+                                # Plot sorted values against cumulative probabilities
+                                ax.plot(real_values, real_y, linestyle='none', marker='o', 
                                      label='Real', color='darkblue', markersize=8)
-                                ax.plot(range(len(all_categories)), synth_cumsum, linestyle='none', marker='o', 
+                                ax.plot(synth_values, synth_y, linestyle='none', marker='o', 
                                      label='Fake', color='sandybrown', markersize=8, alpha=0.7)
                                 
                                 ax.set_ylim(0, 1.05)
-                                ax.set_xlim(-0.5, len(all_categories) - 0.5)
                                 ax.grid(True, linestyle='--', alpha=0.7)
                                 ax.set_title(col)
                                 ax.set_xlabel('')
                                 ax.set_ylabel('Cumsum')
-                                if len(all_categories) <= 10:
-                                    ax.set_xticks(range(len(all_categories)))
-                                    ax.set_xticklabels(all_categories, rotation=45, ha='right', fontsize=8)
+                                
+                                # Set x-ticks based on unique values
+                                unique_values = sorted(self.real_data[col].unique())
+                                
+                                if len(unique_values) <= 10:
+                                    ax.set_xticks(unique_values)
+                                    ax.set_xticklabels(unique_values, rotation=45, ha='right', fontsize=8)
                                 else:
-                                    step = max(1, len(all_categories) // 5)
-                                    indices = range(0, len(all_categories), step)
-                                    categories = [all_categories[i] for i in indices]
-                                    ax.set_xticks(indices)
-                                    ax.set_xticklabels(categories, rotation=45, ha='right', fontsize=8)
+                                    # Show subset of values
+                                    step = max(1, len(unique_values) // 5)
+                                    indices = list(range(0, len(unique_values), step))
+                                    selected_values = [unique_values[i] for i in indices]
+                                    ax.set_xticks(selected_values)
+                                    ax.set_xticklabels(selected_values, rotation=45, ha='right', fontsize=8)
                                 ax.legend(loc='upper left')
                             except Exception as e:
                                 print(f"Error plotting column {col}: {str(e)}")
