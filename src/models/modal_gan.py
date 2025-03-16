@@ -10,7 +10,10 @@ import time
 # Define app and shared resources at module level
 app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
-image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
+# Create base image with required dependencies
+base_image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
+# Explicitly add local Python modules to prevent automounting deprecation warnings
+image = base_image.add_local_python_source("sitecustomize")
 
 # Add helper functions to handle numpy serialization
 def serialize_numpy(data):

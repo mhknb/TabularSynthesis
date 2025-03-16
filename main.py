@@ -41,6 +41,16 @@ st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
 # Initialize PyTorch and configure device
 from src.utils.torch_init import init_torch
+
+# Fix for PyTorch path errors with Streamlit
+# A simpler approach without modifying Streamlit internals
+import torch
+
+# Preload key torch modules to prevent file watcher issues
+_ = torch.nn
+_ = torch.optim
+_ = torch.utils.data
+
 device = init_torch()
 
 # Initialize event loop for async operations if needed

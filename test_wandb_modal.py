@@ -5,8 +5,13 @@ import time
 # Create Modal app
 app = modal.App()
 
+# Create base image with proper dependencies 
+base_image = modal.Image.debian_slim().pip_install("wandb")
+# Explicitly add local Python modules to prevent automounting deprecation warnings
+image = base_image.add_local_python_source("sitecustomize")
+
 @app.function(
-    image=modal.Image.debian_slim().pip_install("wandb"),
+    image=image,
     secrets=[modal.Secret.from_name("wandb-secret")],
 )
 def test_wandb():
