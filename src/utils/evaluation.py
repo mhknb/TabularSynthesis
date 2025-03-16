@@ -334,33 +334,52 @@ class DataEvaluator:
         return fig
 
     def plot_distributions(self, save_path: str = None):
-        """Plot distribution comparisons for numerical columns"""
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
-        if len(numerical_cols) == 0:
-            fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-            ax.text(0.5, 0.5, 'No numerical columns to compare', 
-                   horizontalalignment='center', verticalalignment='center')
+        """Plot distribution comparisons for numerical columns with enhanced error handling"""
+        try:
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) == 0:
+                fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+                ax.text(0.5, 0.5, 'No numerical columns to compare', 
+                       horizontalalignment='center', verticalalignment='center')
+                if save_path:
+                    plt.savefig(save_path)
+                    plt.close()
+                return fig
+
+            n_cols = len(numerical_cols)
+            fig = plt.figure(figsize=(12, 5*n_cols))
+            
+            for idx, col in enumerate(numerical_cols, 1):
+                plt.subplot(n_cols, 1, idx)
+                
+                # Create melted dataframe for seaborn
+                real_df = pd.DataFrame({'value': self.real_data[col], 'type': 'Real'})
+                synth_df = pd.DataFrame({'value': self.synthetic_data[col], 'type': 'Synthetic'})
+                combined_df = pd.concat([real_df, synth_df])
+                
+                # Plot distributions using seaborn
+                sns.histplot(data=combined_df, x='value', hue='type', stat='density', 
+                           common_norm=False, alpha=0.5)
+                sns.kdeplot(data=combined_df, x='value', hue='type', linewidth=2)
+                
+                plt.title(f'Distribution Comparison - {col}')
+                plt.xlabel(col)
+                plt.ylabel('Density')
+
+            plt.tight_layout()
             if save_path:
                 plt.savefig(save_path)
                 plt.close()
             return fig
-
-        n_cols = len(numerical_cols)
-        fig, axes = plt.subplots(n_cols, 1, figsize=(10, 5*n_cols))
-        if n_cols == 1:
-            axes = [axes]
-
-        for ax, col in zip(axes, numerical_cols):
-            sns.kdeplot(data=self.real_data[col], label='Real', ax=ax)
-            sns.kdeplot(data=self.synthetic_data[col], label='Synthetic', ax=ax)
-            ax.set_title(f'Distribution Comparison - {col}')
-            ax.legend()
-
-        plt.tight_layout()
-        if save_path:
-            plt.savefig(save_path)
-            plt.close()
-        return fig
+            
+        except Exception as e:
+            print(f"Error in plot_distributions: {str(e)}")
+            # Return a figure with error message
+            fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+            ax.text(0.5, 0.5, f'Error generating distribution plots: {str(e)}', 
+                   horizontalalignment='center', verticalalignment='center',
+                   wrap=True)
+            return fig
 
     def calculate_distribution_divergence(self) -> dict:
         """Calculate JSD and WD for numerical columns"""
