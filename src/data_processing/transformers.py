@@ -37,47 +37,6 @@ class DataTransformer:
 
             imputed_data = imputer.fit_transform(valid_data).flatten()
             self.imputers[data.name] = imputer
-            
-        if method == 'mode_specific':
-            from sklearn.mixture import BayesianGaussianMixture
-            vgm = BayesianGaussianMixture(
-                n_components=10,  # Max number of modes
-                weight_concentration_prior=0.1,
-                weight_concentration_prior_type='dirichlet_process'
-            )
-            
-            # Reshape data for VGM
-            shaped_data = data.values.reshape(-1, 1)
-            vgm.fit(shaped_data)
-            
-            # Calculate probabilities (β) and normalized values (α)
-            probabilities = vgm.predict_proba(shaped_data)  # β values
-            means = vgm.means_.flatten()
-            stds = np.sqrt(vgm.covariances_.flatten())
-            
-            # Calculate normalized values within each mode
-            mode_assignments = vgm.predict(shaped_data)
-            alphas = np.zeros_like(shaped_data)
-            
-            for i in range(len(data)):
-                mode = mode_assignments[i]
-                alphas[i] = (data.values[i] - means[mode]) / (2 * stds[mode])
-                
-            # Store parameters for inverse transform
-            self.scalers[data.name] = {
-                'type': 'mode_specific',
-                'vgm': vgm,
-                'means': means,
-                'stds': stds
-            }
-            
-            # Normalize output dimensions to match other methods
-            # Use only the highest probability mode and its normalized value
-            highest_prob_mode = np.argmax(probabilities, axis=1)
-            mode_probs = probabilities[np.arange(len(data)), highest_prob_mode]
-            transformed = np.column_stack([mode_probs, alphas])
-            transformed = transformed.mean(axis=1)  # Combine to single value
-            return pd.Series(transformed, name=data.name)
 
             # Use imputed data for further transformations
             data_for_transform = pd.Series(imputed_data, name=data.name)
@@ -160,24 +119,9 @@ class DataTransformer:
         """Inverse transform continuous data with range validation"""
         scaler = self.scalers.get(data.name)
         if scaler is None:
+            # Instead of raising an error, return the original data
+            # This handles excluded columns that might be reintroduced
             return data
-            
-        if isinstance(scaler, dict) and scaler['type'] == 'mode_specific':
-            vgm = scaler['vgm']
-            means = scaler['means']
-            stds = scaler['stds']
-            
-            # Split data back into β and α values
-            n_components = len(means)
-            beta = data.values[:n_components]
-            alpha = data.values[n_components]
-            
-            # Get most probable mode
-            mode = np.argmax(beta)
-            
-            # Reconstruct original value
-            value = means[mode] + (alpha * 2 * stds[mode])
-            return pd.Series([value], name=data.name)
             
         # Check for None values and handle them
         if data.isnull().any():

@@ -2,30 +2,39 @@ import asyncio
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
-import wandb #added for wandb integration
+
+# Fix for binary incompatibility between numpy and pandas/torch
+# Import packages in a specific order to avoid conflicts
+import numpy as np
+import pandas as pd
+import streamlit as st
+import torch
+import matplotlib.pyplot as plt
+
+# Import wandb after numpy and other core packages
+import wandb  # added for wandb integration
 
 # Configure wandb defaults
 os.environ["WANDB_ENTITY"] = "smilai"
 os.environ["WANDB_PROJECT"] = "sd1"
 
-import streamlit as st
-import torch
-import pandas as pd
-import numpy as np
+# Now import the rest of the modules
 from src.data_processing.data_loader import DataLoader
 from src.data_processing.transformers import DataTransformer
 from src.models.table_gan import TableGAN
-from src.models.modal_gan import ModalGAN
 from src.models.wgan import WGAN
 from src.models.cgan import CGAN
 from src.models.tvae import TVAE
-from src.models.ctgan import CTGAN # Added import for CTGAN
+from src.models.ctgan import CTGAN  # Added import for CTGAN
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
 from sklearn.model_selection import train_test_split
 from bayes_opt import BayesianOptimization
-import matplotlib.pyplot as plt #added for plot closing
+
+# Import Modal last to avoid conflicts
+# This helps with the numpy._core module not found error
+from src.models.modal_gan import ModalGAN
 
 # Initialize event loop for async operations
 try:
