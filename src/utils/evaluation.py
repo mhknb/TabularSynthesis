@@ -784,40 +784,44 @@ class DataEvaluator:
 
     def evaluate_all(self, target_column=None, task_type='classification'):
         """Run all evaluations and return combined results"""
-        results = {}
-
         try:
-            results['statistical_similarity'] = self.statistical_similarity()
+            results = {}
+
+            try:
+                results['statistical_similarity'] = self.statistical_similarity()
+            except Exception as e:
+                results['statistical_similarity'] = f"Error: {str(e)}"
+
+            try:
+                results['correlation_similarity'] = self.correlation_similarity()
+            except Exception as e:
+                results['correlation_similarity'] = f"Error: {str(e)}"
+
+            try:
+                results['column_statistics'] = self.column_statistics()
+            except Exception as e:
+                results['column_statistics'] = f"Error: {str(e)}"
+
+            try:
+                results['divergence_metrics'] = self.calculate_distribution_divergence()
+            except Exception as e:
+                results['divergence_metrics'] = f"Error: {str(e)}"
+
+            if target_column:
+                if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
+                    try:
+                        results['ml_utility'] = self.evaluate_ml_utility(target_column, task_type)
+                    except Exception as e:
+                        results['ml_utility'] = f"Error: {str(e)}"
+                else:
+                    results['ml_utility'] = "Target column not found in both datasets"
+
+            try:
+                results['numerical_stats'] = self.calculate_numerical_stats()
+            except Exception as e:
+                results['numerical_stats'] = f"Error: {str(e)}"
+
+            return results
         except Exception as e:
-            results['statistical_similarity'] = f"Error: {str(e)}"
-
-        try:
-            results['correlation_similarity'] = self.correlation_similarity()
-        except Exception as e:
-            results['correlation_similarity'] = f"Error: {str(e)}"
-
-        try:
-            results['column_statistics'] = self.column_statistics()
-        except Exception as e:
-            results['column_statistics'] = f"Error: {str(e)}"
-
-        try:
-            results['divergence_metrics'] = self.calculate_distribution_divergence()
-        except Exception as e:
-            results['divergence_metrics'] = f"Error: {str(e)}"
-
-        if target_column:
-            if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
-                try:
-                    results['ml_utility'] = self.evaluate_ml_utility(target_column, task_type)
-                except Exception as e:
-                    results['ml_utility'] = f"Error: {str(e)}"
-            else:
-                results['ml_utility'] = "Target column not found in both datasets"
-
-        try:
-            results['numerical_stats'] = self.calculate_numerical_stats()
-        except Exception as e:
-            results['numerical_stats'] = f"Error: {str(e)}"
-
-        return results
+            print(f"Error in evaluate_all: {str(e)}")
+            return {'error': str(e)}
