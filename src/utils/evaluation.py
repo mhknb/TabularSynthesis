@@ -500,9 +500,11 @@ class DataEvaluator:
                     real_cumsum = np.cumsum(real_values)
                     synth_cumsum = np.cumsum(synth_values)
 
-                    # Plot the cumulative distributions
-                    ax.step(range(len(all_categories)), real_cumsum, where='post', label='Real', color='darkblue', marker='o', markersize=4)
-                    ax.step(range(len(all_categories)), synth_cumsum, where='post', label='Fake', color='sandybrown', marker='o', markersize=4)
+                    # Plot the cumulative distributions using markers only (no lines) to match example
+                    ax.plot(range(len(all_categories)), real_cumsum, linestyle='none', marker='o', 
+                          label='Real', color='darkblue', markersize=8)
+                    ax.plot(range(len(all_categories)), synth_cumsum, linestyle='none', marker='o', 
+                          label='Fake', color='sandybrown', markersize=8, alpha=0.5)
 
                     # Set the plot limits and grid
                     ax.set_ylim(0, 1.05)
