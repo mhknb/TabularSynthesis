@@ -410,11 +410,16 @@ class DataEvaluator:
 
     def plot_categorical_cdf(self, save_path: str = None):
         """Plot cumulative distribution comparisons for categorical columns, organized by related features"""
-        categorical_cols = self.real_data.select_dtypes(include=['object', 'category']).columns
-        n_cols = len(categorical_cols)
-        
-        if n_cols == 0:
-            return None
+        try:
+            # Get categorical columns
+            categorical_cols = self.real_data.select_dtypes(include=['object', 'category']).columns
+            n_cols = len(categorical_cols)
+            
+            if n_cols == 0:
+                print("No categorical columns found")
+                return None
+                
+            print(f"Processing {n_cols} categorical columns")
         
         # Group columns by feature type based on common prefixes or patterns in column names
         # This helps organize related fields together as shown in the example image
@@ -459,12 +464,17 @@ class DataEvaluator:
             
             # Plot each column in this group
             for i, col in enumerate(cols):
-                if i < len(flat_axes):
-                    ax = flat_axes[i]
-                    
-                    # Get value counts and convert to proportions
-                    real_counts = self.real_data[col].value_counts(normalize=True)
-                    synth_counts = self.synthetic_data[col].value_counts(normalize=True)
+                try:
+                    if i < len(flat_axes):
+                        ax = flat_axes[i]
+                        
+                        # Get value counts and convert to proportions with error handling
+                        real_counts = self.real_data[col].value_counts(normalize=True)
+                        synth_counts = self.synthetic_data[col].value_counts(normalize=True)
+                        
+                        if real_counts.empty or synth_counts.empty:
+                            print(f"Warning: Empty counts for column {col}")
+                            continue
                     
                     # Combine categories and ensure consistent ordering
                     all_categories = sorted(set(real_counts.index) | set(synth_counts.index))
