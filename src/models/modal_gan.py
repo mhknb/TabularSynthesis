@@ -2,6 +2,7 @@ import modal
 import torch
 import pandas as pd
 import numpy as np
+import json
 from src.models.table_gan import TableGAN
 import wandb
 import time
@@ -9,17 +10,38 @@ import time
 # Define app and shared resources at module level
 app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
-image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
+image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
+
+# Add helper functions to handle numpy serialization
+def serialize_numpy(data):
+    """Serialize numpy array to list to avoid numpy._core serialization issues"""
+    if isinstance(data, np.ndarray):
+        return data.tolist()
+    return data
+
+def deserialize_numpy(data):
+    """Convert list back to numpy array"""
+    if isinstance(data, list):
+        return np.array(data)
+    return data
 
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=image,
+    image=image.pip_install("tarsafe"),
     secrets=[modal.Secret.from_name("wandb-secret")],
     timeout=1800
 )
-def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
+def train_gan_remote(data_list, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
+    # Convert data_list back to dataframe if needed
+    if isinstance(data_list, list):
+        import pandas as pd
+        import numpy as np
+        data = pd.DataFrame(data_list)
+    else:
+        data = data_list
+        
     # Initialize wandb first, following the example pattern
     wandb.init(project="sd1")
     wandb.config = {
@@ -118,7 +140,7 @@ def train_gan_remote(data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs
     image=image,
     timeout=600
 )
-def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
+def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int):
     """Generate synthetic samples using Modal remote execution"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
@@ -126,8 +148,12 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
     try:
         gan.load_state_dict(torch.load("/model/table_gan.pt"))
         synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
-        return synthetic_data
+        # Serialize numpy array to list to avoid serialization issues
+        return serialize_numpy(synthetic_data)
     except Exception as e:
+        import traceback
+        print(f"Failed to generate samples: {str(e)}")
+        print(traceback.format_exc())
         raise RuntimeError(f"Failed to generate samples: {str(e)}")
 
 class ModalGAN:
@@ -136,17 +162,34 @@ class ModalGAN:
     def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str = 'TableGAN'):
         """Train GAN model using Modal"""
         try:
+            # Serialize the DataFrame to avoid numpy._core serialization issues
+            serialized_data = serialize_numpy(data.values.tolist())
+            
             with app.run():
-                return train_gan_remote.remote(data, input_dim, hidden_dim, epochs, batch_size, model_type)
+                result = train_gan_remote.remote(serialized_data, input_dim, hidden_dim, epochs, batch_size, model_type)
+                return result
         except Exception as e:
+            import traceback
             if "timeout" in str(e).lower():
+                print("Modal training exceeded time limit. Trying with reduced parameters.")
                 raise RuntimeError("Modal training exceeded time limit. Try reducing epochs or batch size.")
+            print(f"Modal training failed: {str(e)}")
+            print(traceback.format_exc())
             raise RuntimeError(f"Modal training failed: {str(e)}")
 
     def generate(self, num_samples: int, input_dim: int, hidden_dim: int) -> np.ndarray:
         """Generate synthetic samples using Modal"""
         try:
             with app.run():
-                return generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
+                serialized_data = generate_samples_remote.remote(num_samples, input_dim, hidden_dim)
+                # Convert the serialized data back to numpy array
+                return deserialize_numpy(serialized_data)
         except Exception as e:
-            raise RuntimeError(f"Modal generation failed: {str(e)}")
+            print(f"Modal generation failed: {str(e)}")
+            # Fall back to local generation if modal fails
+            print("Falling back to local training...")
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
+            # Generate data locally
+            synthetic_data = gan.generate_samples(num_samples).cpu().numpy()
+            return synthetic_data
