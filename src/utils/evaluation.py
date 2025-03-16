@@ -544,7 +544,133 @@ class DataEvaluator:
 
         return fig_list if fig_list else None
 
-    def generate_evaluation_plots(self):
+    def plot_categorical_correlation(self, save_path: str = None):
+        """Plot correlation heatmap for categorical features"""
+        try:
+            # Get categorical columns
+            categorical_cols = self.real_data.select_dtypes(include=['object', 'category']).columns
+            if len(categorical_cols) <= 1:
+                print("Not enough categorical columns for correlation plot")
+                return None
+                
+            fig_list = []
+            
+            # Generate heatmap similar to the reference screenshot
+            # First - create a per-feature correlation for real data
+            plt.figure(figsize=(10, 9))
+            
+            # Generate one-hot encoded data for correlation calculation
+            real_encoded = pd.get_dummies(self.real_data[categorical_cols])
+            
+            # Prepare column name mappings for better display
+            # Get original column names (before one-hot encoding)
+            orig_cols = []
+            for col in categorical_cols:
+                orig_cols.append(col)
+            
+            # Calculate correlation matrix
+            corr_matrix = real_encoded.corr()
+            
+            # Create feature-level correlation matrix by averaging one-hot encoded correlations
+            feature_corr = pd.DataFrame(index=orig_cols, columns=orig_cols)
+            
+            # For each pair of original features, calculate average correlation between their one-hot encoded columns
+            for i, feat1 in enumerate(orig_cols):
+                for j, feat2 in enumerate(orig_cols):
+                    # Get one-hot columns for these features
+                    cols1 = [c for c in real_encoded.columns if c.startswith(f"{feat1}_")]
+                    cols2 = [c for c in real_encoded.columns if c.startswith(f"{feat2}_")]
+                    
+                    # If no prefix pattern, try another approach
+                    if not cols1:
+                        cols1 = [c for c in real_encoded.columns if c.startswith(f"{feat1}")]
+                    if not cols2:
+                        cols2 = [c for c in real_encoded.columns if c.startswith(f"{feat2}")]
+                    
+                    # Calculate average correlation between these columns
+                    if cols1 and cols2:
+                        sub_corr = corr_matrix.loc[cols1, cols2].values.flatten()
+                        feature_corr.at[feat1, feat2] = sub_corr.mean()
+            
+            # Fill NaN values with 0
+            feature_corr = feature_corr.fillna(0)
+            
+            # Plot the heatmap with red-white-blue colormap
+            plt.figure(figsize=(10, 9))
+            
+            # Title with bold font at the top
+            plt.suptitle('Real', fontsize=18, fontweight='bold', y=0.98)
+            
+            # Create the heatmap with RdBu_r colormap for red-white-blue transition
+            sns.heatmap(feature_corr, cmap='RdBu_r', vmin=-1, vmax=1, 
+                        square=True, linewidths=0.5, cbar_kws={"shrink": .8},
+                        annot=False)
+            
+            plt.tight_layout()
+            plt.subplots_adjust(top=0.92)
+            fig1 = plt.gcf()
+            fig_list.append(fig1)
+            
+            # Now do the same for synthetic data
+            plt.figure(figsize=(10, 9))
+            
+            # Generate one-hot encoded data for correlation calculation
+            synth_encoded = pd.get_dummies(self.synthetic_data[categorical_cols])
+            
+            # Calculate correlation matrix
+            corr_matrix = synth_encoded.corr()
+            
+            # Create feature-level correlation matrix by averaging one-hot encoded correlations
+            feature_corr = pd.DataFrame(index=orig_cols, columns=orig_cols)
+            
+            # For each pair of original features, calculate average correlation between their one-hot encoded columns
+            for i, feat1 in enumerate(orig_cols):
+                for j, feat2 in enumerate(orig_cols):
+                    # Get one-hot columns for these features
+                    cols1 = [c for c in synth_encoded.columns if c.startswith(f"{feat1}_")]
+                    cols2 = [c for c in synth_encoded.columns if c.startswith(f"{feat2}_")]
+                    
+                    # If no prefix pattern, try another approach
+                    if not cols1:
+                        cols1 = [c for c in synth_encoded.columns if c.startswith(f"{feat1}")]
+                    if not cols2:
+                        cols2 = [c for c in synth_encoded.columns if c.startswith(f"{feat2}")]
+                    
+                    # Calculate average correlation between these columns
+                    if cols1 and cols2:
+                        sub_corr = corr_matrix.loc[cols1, cols2].values.flatten()
+                        feature_corr.at[feat1, feat2] = sub_corr.mean()
+            
+            # Fill NaN values with 0
+            feature_corr = feature_corr.fillna(0)
+            
+            # Title with bold font at the top
+            plt.suptitle('Synthetic', fontsize=18, fontweight='bold', y=0.98)
+            
+            # Create the heatmap with RdBu_r colormap for red-white-blue transition
+            sns.heatmap(feature_corr, cmap='RdBu_r', vmin=-1, vmax=1, 
+                        square=True, linewidths=0.5, cbar_kws={"shrink": .8},
+                        annot=False)
+            
+            plt.tight_layout()
+            plt.subplots_adjust(top=0.92)
+            fig2 = plt.gcf()
+            fig_list.append(fig2)
+            
+            if save_path:
+                fig1.savefig(f"{save_path}_real_categorical_correlation.png")
+                fig2.savefig(f"{save_path}_synthetic_categorical_correlation.png")
+                plt.close(fig1)
+                plt.close(fig2)
+                
+            return fig_list
+        except Exception as e:
+            print(f"Error generating categorical correlation plots: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def generate_evaluation_plots(self, save_path: str = None):
         """Generate evaluation plots with enhanced error handling"""
         try:
             print("\nGenerating evaluation plots...")
@@ -762,9 +888,14 @@ class DataEvaluator:
                 figures.append(fig_num_cumsums)
 
             # Generate categorical CDF plots
-            categorical_cdfs = self.plot_categorical_cdf()
+            categorical_cdfs = self.plot_categorical_cdf(save_path)
             if categorical_cdfs:
                 figures.extend(categorical_cdfs)
+                
+            # Generate categorical correlation heatmaps
+            categorical_corr = self.plot_categorical_correlation(save_path)
+            if categorical_corr:
+                figures.extend(categorical_corr)
 
             print("Successfully generated evaluation plots")
             return figures
