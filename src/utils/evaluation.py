@@ -750,9 +750,9 @@ class DataEvaluator:
                     real_cdf = np.arange(1, len(real_col) + 1) / len(real_col)
                     synth_cdf = np.arange(1, len(synth_col) + 1) / len(synth_col)
 
-                    # Plot CDFs using subset of points
-                    ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue', alpha=0.3)
-                    ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red', alpha=0.3)
+                    # Plot CDFs using subset of points with bolder lines
+                    ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue', alpha=0.6, linewidth=2.5)
+                    ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red', alpha=0.6, linewidth=2.5)
                     ax.set_title(col)
                     ax.set_xlabel('Value')
                     ax.set_ylabel('Cumulative Probability')
