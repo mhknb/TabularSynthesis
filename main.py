@@ -36,15 +36,28 @@ from bayes_opt import BayesianOptimization
 # This helps with the numpy._core module not found error
 from src.models.modal_gan import ModalGAN
 
-# Initialize event loop for async operations
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-# Configure Streamlit page
+# Configure Streamlit page first, before any other operations
 st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
+
+# Initialize PyTorch and configure device
+from src.utils.torch_init import init_torch
+device = init_torch()
+
+# Initialize event loop for async operations if needed
+def init_async():
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+# Only initialize async when needed
+if 'async_loop_initialized' not in st.session_state:
+    init_async()
+    st.session_state['async_loop_initialized'] = True
+
+# Store device in session state for consistency
+st.session_state['device'] = device
 
 # Initialize Modal resources
 modal_gan = ModalGAN()
