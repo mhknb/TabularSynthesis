@@ -619,8 +619,13 @@ class DataEvaluator:
                                     synth_values[j] = synth_counts.get(category, 0)
                                 real_cumsum = np.cumsum(real_values)
                                 synth_cumsum = np.cumsum(synth_values)
-                                ax.step(range(len(all_categories)), real_cumsum, where='post', label='Real', color='darkblue', marker='o', markersize=4)
-                                ax.step(range(len(all_categories)), synth_cumsum, where='post', label='Fake', color='sandybrown', marker='o', markersize=4)
+                                
+                                # Updated plotting style: scatter plots with no connecting lines
+                                ax.plot(range(len(all_categories)), real_cumsum, linestyle='none', marker='o', 
+                                     label='Real', color='darkblue', markersize=8)
+                                ax.plot(range(len(all_categories)), synth_cumsum, linestyle='none', marker='o', 
+                                     label='Fake', color='sandybrown', markersize=8, alpha=0.7)
+                                
                                 ax.set_ylim(0, 1.05)
                                 ax.set_xlim(-0.5, len(all_categories) - 0.5)
                                 ax.grid(True, linestyle='--', alpha=0.7)
@@ -671,8 +676,13 @@ class DataEvaluator:
                                     synth_values[j] = synth_counts.get(category, 0)
                                 real_cumsum = np.cumsum(real_values)
                                 synth_cumsum = np.cumsum(synth_values)
-                                ax.step(range(len(all_categories)), real_cumsum, where='post', label='Real', color='darkblue', marker='o', markersize=4)
-                                ax.step(range(len(all_categories)), synth_cumsum, where='post', label='Fake', color='sandybrown', marker='o', markersize=4)
+                                
+                                # Updated plotting style: scatter plots with no connecting lines
+                                ax.plot(range(len(all_categories)), real_cumsum, linestyle='none', marker='o', 
+                                     label='Real', color='darkblue', markersize=8)
+                                ax.plot(range(len(all_categories)), synth_cumsum, linestyle='none', marker='o', 
+                                     label='Fake', color='sandybrown', markersize=8, alpha=0.7)
+                                
                                 ax.set_ylim(0, 1.05)
                                 ax.set_xlim(-0.5, len(all_categories) - 0.5)
                                 ax.grid(True, linestyle='--', alpha=0.7)
