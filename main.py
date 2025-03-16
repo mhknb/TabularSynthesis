@@ -10,6 +10,11 @@ import pandas as pd
 import streamlit as st
 import torch
 import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Set seaborn style globally
+sns.set_style("whitegrid")
+sns.set_context("notebook", font_scale=1.1)
 
 # Import wandb after numpy and other core packages
 import wandb  # added for wandb integration
