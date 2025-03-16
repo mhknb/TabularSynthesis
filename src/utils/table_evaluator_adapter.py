@@ -77,31 +77,22 @@ class TableEvaluatorAdapter:
             # Process numerical columns
             numerical_cols = [col for col in self.real_processed.columns if col not in self.cat_cols]
             for col in numerical_cols:
-                try:
-                    # Only process if the column contains numeric data
-                    if pd.to_numeric(self.real_processed[col], errors='coerce').notna().any():
-                        # Convert to numeric and handle missing values
-                        self.real_processed[col] = pd.to_numeric(
-                            self.real_processed[col], errors='coerce'
-                        ).fillna(0).astype(np.float64)
-                        self.synthetic_processed[col] = pd.to_numeric(
-                            self.synthetic_processed[col], errors='coerce'
-                        ).fillna(0).astype(np.float64)
+                # Convert to numeric and handle missing values
+                self.real_processed[col] = pd.to_numeric(
+                    self.real_processed[col], errors='coerce'
+                ).fillna(0).astype(np.float64)
+                self.synthetic_processed[col] = pd.to_numeric(
+                    self.synthetic_processed[col], errors='coerce'
+                ).fillna(0).astype(np.float64)
 
-                        # Scale values
-                        scaler = MinMaxScaler()
-                        self.real_processed[col] = scaler.fit_transform(
-                            self.real_processed[col].values.reshape(-1, 1)
-                        ).ravel()
-                        self.synthetic_processed[col] = scaler.transform(
-                            self.synthetic_processed[col].values.reshape(-1, 1)
-                        ).ravel()
-                    else:
-                        # If not numeric, treat as categorical
-                        self.cat_cols.append(col)
-                except Exception as e:
-                    print(f"Warning: Could not process column {col} as numeric: {str(e)}")
-                    self.cat_cols.append(col)
+                # Scale values
+                scaler = MinMaxScaler()
+                self.real_processed[col] = scaler.fit_transform(
+                    self.real_processed[col].values.reshape(-1, 1)
+                ).ravel()
+                self.synthetic_processed[col] = scaler.transform(
+                    self.synthetic_processed[col].values.reshape(-1, 1)
+                ).ravel()
 
             print("\nProcessed data types:")
             print("Real data:\n", self.real_processed.dtypes)
