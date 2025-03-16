@@ -89,18 +89,10 @@ class CTGAN(BaseGAN):
         self.hidden_dim = hidden_dim
         self.num_residual_blocks = num_residual_blocks
         
-        # Initialize networks
-        self.generator = CTGANGenerator(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
-            num_residual_blocks=num_residual_blocks
-        ).to(device)
+        # Initialize networks using the build methods
+        self.generator = self.build_generator().to(device)
+        self.discriminator = self.build_discriminator().to(device)
         
-        self.discriminator = CTGANDiscriminator(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim
-        ).to(device)
-
         # Initialize optimizers
         self.g_optimizer = torch.optim.Adam(
             self.generator.parameters(),
@@ -115,7 +107,22 @@ class CTGAN(BaseGAN):
 
         # Initialize criterion
         self.criterion = nn.BCELoss()
-
+    
+    def build_generator(self) -> nn.Module:
+        """Build generator network with residual blocks"""
+        return CTGANGenerator(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim,
+            num_residual_blocks=self.num_residual_blocks
+        )
+    
+    def build_discriminator(self) -> nn.Module:
+        """Build discriminator network"""
+        return CTGANDiscriminator(
+            input_dim=self.input_dim,
+            hidden_dim=self.hidden_dim
+        )
+    
     def train_step(self, real_data: torch.Tensor) -> dict:
         """Perform one training step"""
         batch_size = real_data.size(0)
