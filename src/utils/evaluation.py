@@ -584,23 +584,29 @@ class DataEvaluator:
             # Create figure for mean and std plots
             fig_mean_std = plt.figure(figsize=(12, 6))
 
-            # Plot mean comparison
-            means_real = self.real_processed.mean()
-            means_synth = self.synthetic_processed.mean()
-            stds_real = self.real_processed.std()
-            stds_synth = self.synthetic_processed.std()
+            # Only process numerical columns for mean/std comparison
+            numerical_cols = self.real_processed.select_dtypes(include=['int64', 'float64']).columns
+            if len(numerical_cols) > 0:
+                means_real = self.real_processed[numerical_cols].mean()
+                means_synth = self.synthetic_processed[numerical_cols].mean()
+                stds_real = self.real_processed[numerical_cols].std()
+                stds_synth = self.synthetic_processed[numerical_cols].std()
 
-            data_mean = pd.DataFrame({
-                'Feature': means_real.index,
-                'Real': means_real.values,
-                'Synthetic': means_synth.values
-            }).melt(id_vars=['Feature'], var_name='Type', value_name='Mean')
+                data_mean = pd.DataFrame({
+                    'Feature': means_real.index,
+                    'Real': means_real.values,
+                    'Synthetic': means_synth.values
+                }).melt(id_vars=['Feature'], var_name='Type', value_name='Mean')
 
-            data_std = pd.DataFrame({
-                'Feature': stds_real.index,
-                'Real': stds_real.values,
-                'Synthetic': stds_synth.values
-            }).melt(id_vars=['Feature'], var_name='Type', value_name='Std')
+                data_std = pd.DataFrame({
+                    'Feature': stds_real.index,
+                    'Real': stds_real.values,
+                    'Synthetic': stds_synth.values
+                }).melt(id_vars=['Feature'], var_name='Type', value_name='Std')
+            else:
+                # Create empty DataFrames if no numerical columns
+                data_mean = pd.DataFrame(columns=['Feature', 'Type', 'Mean'])
+                data_std = pd.DataFrame(columns=['Feature', 'Type', 'Std'])
 
             fig_mean_std = plt.figure(figsize=(15, 6))
             plt.subplot(1, 2, 1)
