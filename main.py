@@ -580,18 +580,37 @@ def main():
                     with st.spinner("Generating distribution plots..."):
                         plots = evaluator.generate_evaluation_plots()
 
-                        if plots:
+                        if plots and len(plots) > 0:
                             # Display mean-std plot
                             st.write("Absolute Log Mean and STDs of numeric data")
                             st.pyplot(plots[0])
                             plt.close(plots[0])  # Clean up memory
 
-                            # Display cumulative sums plot
-                            st.write("Cumulative Sums per feature")
-                            st.pyplot(plots[1])
-                            plt.close(plots[1])  # Clean up memory
+                            # Display cumulative sums plot for numerical features
+                            if len(plots) > 1:
+                                st.write("Cumulative Sums per Numerical Feature")
+                                st.pyplot(plots[1])
+                                plt.close(plots[1])  # Clean up memory
+                            
+                            # Display categorical CDF plots
+                            if len(plots) > 2:
+                                st.write("### Categorical Feature Distributions")
+                                # The rest of the plots are categorical CDF plots
+                                for i in range(2, len(plots)):
+                                    st.pyplot(plots[i])
+                                    plt.close(plots[i])  # Clean up memory
                         else:
                             st.warning("Could not generate distribution plots")
+                            
+                    # Add a direct call to categorical plots if no categorical plots were found
+                    if plots and len(plots) <= 2:
+                        with st.spinner("Generating categorical distribution plots..."):
+                            cat_plots = evaluator.plot_categorical_cdf()
+                            if cat_plots:
+                                st.write("### Categorical Feature Distributions")
+                                for plot in cat_plots:
+                                    st.pyplot(plot)
+                                    plt.close(plot)  # Clean up memory
 
                 # Display final results
                 st.success("Synthetic data generated successfully!")
