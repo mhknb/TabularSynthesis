@@ -426,14 +426,14 @@ class DataEvaluator:
             
             # Check for different prefix patterns in column names
             for col in categorical_cols:
-            # Look for common naming patterns like prefixes with underscores or other separators
-            parts = col.split('_')
-            if len(parts) > 1:
-                prefix = parts[0]
-                column_groups.setdefault(prefix, []).append(col)
-            else:
-                # If no clear pattern, add to "other" group
-                column_groups.setdefault('other', []).append(col)
+                # Look for common naming patterns like prefixes with underscores or other separators
+                parts = col.split('_')
+                if len(parts) > 1:
+                    prefix = parts[0]
+                    column_groups.setdefault(prefix, []).append(col)
+                else:
+                    # If no clear pattern, add to "other" group
+                    column_groups.setdefault('other', []).append(col)
                 
         except Exception as e:
             print(f"Error processing categorical columns: {str(e)}")
