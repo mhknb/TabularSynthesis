@@ -10,10 +10,13 @@ import time
 # Define app and shared resources at module level
 app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
-# Create base image with required dependencies
+# Create base image with required dependencies and proper sequence for local modules
+# First install all dependencies
 base_image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
-# Explicitly add local Python modules to prevent automounting deprecation warnings
-image = base_image.add_local_python_source("sitecustomize")
+# Create new image with the Python source directory added as copy=True
+image = base_image.copy()
+# Add the src directory to make models accessible from remote functions
+image = image.add_local_dir(local_dir="./src", remote_dir="/root/src", copy=True)
 
 # Add helper functions to handle numpy serialization
 def serialize_numpy(data):
@@ -28,19 +31,50 @@ def deserialize_numpy(data):
         return np.array(data)
     return data
 
+# Create a final image with all dependencies properly prepared
+final_image = image.pip_install("tarsafe")
+
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=image.pip_install("tarsafe"),
+    image=final_image,
     secrets=[modal.Secret.from_name("wandb-secret")],
     timeout=1800
 )
 def train_gan_remote(data_list, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str):
     """Train GAN model using Modal remote execution with proper batch handling and WandB logging"""
+    # Import all necessary libraries first
+    import pandas as pd
+    import numpy as np
+    import torch
+    import wandb
+    import sys
+    
+    # Add paths to system path to ensure modules can be found
+    sys.path.append('/root')
+    sys.path.append('/root/src')
+    
+    try:
+        # Try importing directly
+        from src.models.table_gan import TableGAN
+    except ImportError:
+        # Fall back to importing from models directly
+        try:
+            from models.table_gan import TableGAN
+        except ImportError:
+            # Try one more approach
+            print("Attempting to find TableGAN in alternate locations...")
+            import os
+            print(f"Current directory: {os.getcwd()}")
+            print(f"Directory contents: {os.listdir('.')}")
+            if os.path.exists('/root/src'):
+                print(f"/root/src contents: {os.listdir('/root/src')}")
+                if os.path.exists('/root/src/models'):
+                    print(f"/root/src/models contents: {os.listdir('/root/src/models')}")
+            raise
+    
     # Convert data_list back to dataframe if needed
     if isinstance(data_list, list):
-        import pandas as pd
-        import numpy as np
         data = pd.DataFrame(data_list)
     else:
         data = data_list
@@ -140,11 +174,16 @@ def train_gan_remote(data_list, input_dim: int, hidden_dim: int, epochs: int, ba
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
-    image=image,
+    image=final_image,
     timeout=600
 )
 def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int):
     """Generate synthetic samples using Modal remote execution"""
+    # Import all necessary libraries first
+    import torch
+    import numpy as np
+    from src.models.table_gan import TableGAN  # Make sure we import the proper model
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
 
