@@ -7,8 +7,10 @@ app = modal.App()
 
 # Create base image with proper dependencies 
 image = modal.Image.debian_slim().pip_install("wandb")
-# Add current directory to the image (remote_path is the default argument)
+# Add current directory to the image
 image = image.add_local_dir(".", "/root/app", copy=True)
+# Explicitly add sitecustomize to prevent deprecation warning
+image = image.add_local_python_source("sitecustomize")
 
 @app.function(
     image=image,

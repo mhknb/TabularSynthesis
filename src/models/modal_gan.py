@@ -15,6 +15,8 @@ volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb", "tarsafe"])
 # Add the src directory to make models accessible from remote functions with copy=True
 image = image.add_local_dir("./src", "/root/src", copy=True)
+# Explicitly add sitecustomize to prevent deprecation warning
+image = image.add_local_python_source("sitecustomize")
 
 # Add helper functions to handle numpy serialization
 def serialize_numpy(data):
