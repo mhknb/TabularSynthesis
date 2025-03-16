@@ -23,6 +23,14 @@ args = "Streamlit App"
 task = "workflow.run"
 args = "Test WandB"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Test WandB Basic"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Test WandB Modal"
+
 [[workflows.workflow]]
 name = "Streamlit App"
 author = "agent"
@@ -40,6 +48,34 @@ waitForPort = 5000
 
 [[workflows.workflow]]
 name = "Test WandB"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python test_wandb_modal.py"
+
+[[workflows.workflow]]
+name = "Test WandB Basic"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python test_wandb.py"
+
+[[workflows.workflow]]
+name = "Test WandB Modal"
 author = "agent"
 
 [workflows.workflow.metadata]
