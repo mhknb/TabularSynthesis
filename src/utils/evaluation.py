@@ -74,18 +74,22 @@ class DataEvaluator:
 
     def statistical_similarity(self) -> dict:
         """Calculate statistical similarity metrics"""
-        metrics = {}
-        numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+        try:
+            metrics = {}
+            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
 
-        for col in numerical_cols:
-            statistic, pvalue = stats.ks_2samp(
-                self.real_data[col],
-                self.synthetic_data[col]
-            )
-            metrics[f'ks_statistic_{col}'] = statistic
-            metrics[f'ks_pvalue_{col}'] = pvalue
+            for col in numerical_cols:
+                statistic, pvalue = stats.ks_2samp(
+                    self.real_data[col],
+                    self.synthetic_data[col]
+                )
+                metrics[f'ks_statistic_{col}'] = statistic
+                metrics[f'ks_pvalue_{col}'] = pvalue
 
-        return metrics
+            return metrics
+        except Exception as e:
+            print(f"Error in statistical similarity calculation: {str(e)}")
+            return {}
 
     def correlation_similarity(self) -> float:
         """Compare correlation matrices of real and synthetic data"""
