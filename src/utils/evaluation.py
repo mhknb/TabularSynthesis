@@ -433,51 +433,19 @@ class DataEvaluator:
         
         fig_list = []
         
-        # Create a single plot per group with all columns in that group
+        # Create a separate figure for each column to avoid rendering issues in Streamlit
         for group_name, cols in column_groups.items():
             if not cols:
                 continue
                 
-            # Create a single figure for this group
-            fig = plt.figure(figsize=(10, 7))
-            ax = fig.add_subplot(111)
-            
-            # Set up color scheme consistent with Table Evaluator
-            real_color = '#4c71af'  # Dark blue
-            synthetic_color = '#dd8452'  # Sandy orange/brown
-            
-            # Add a legend at the top
-            from matplotlib.lines import Line2D
-            legend_elements = [
-                Line2D([0], [0], marker='o', color='w', markerfacecolor=real_color, 
-                       label='Real', markersize=10),
-                Line2D([0], [0], marker='o', color='w', markerfacecolor=synthetic_color, 
-                       label='Fake', markersize=10)
-            ]
-            ax.legend(handles=legend_elements, loc='upper center', 
-                      bbox_to_anchor=(0.5, 1.15), ncol=2, frameon=False)
-            
-            # Set up the grid
-            ax.grid(True, linestyle='-', alpha=0.3)
-            
-            # Get categories and cumulative distributions for each column
-            all_x_ticks = []
-            max_categories = 0
-            
-            # First, determine x-axis layout
             for col in cols:
-                real_counts = self.real_data[col].value_counts(normalize=True)
-                synth_counts = self.synthetic_data[col].value_counts(normalize=True)
-                all_categories = sorted(set(real_counts.index) | set(synth_counts.index))
-                max_categories = max(max_categories, len(all_categories))
-                all_x_ticks.extend([f"{col_val}" for col_val in all_categories])
-            
-            # Plot for each column
-            x_position = 0
-            x_ticks_pos = []
-            x_ticks_labels = []
-            
-            for col in cols:
+                # Create a dedicated figure for this column
+                plt.figure(figsize=(8, 6))
+                
+                # Set up color scheme consistent with Table Evaluator
+                real_color = '#4c71af'  # Dark blue
+                synthetic_color = '#dd8452'  # Sandy orange/brown
+                
                 # Get value counts and convert to proportions
                 real_counts = self.real_data[col].value_counts(normalize=True)
                 synth_counts = self.synthetic_data[col].value_counts(normalize=True)
@@ -498,41 +466,39 @@ class DataEvaluator:
                 real_cumsum = np.cumsum(real_values)
                 synth_cumsum = np.cumsum(synth_values)
                 
-                # Create x positions for this column
-                x_positions = np.arange(x_position, x_position + len(all_categories))
+                # Create x positions for categories
+                x_positions = np.arange(len(all_categories))
                 
-                # Plot vertical lines with markers for each category in the column
-                ax.plot(x_positions, real_cumsum, 'o-', color=real_color, markersize=6)
-                ax.plot(x_positions, synth_cumsum, 'o-', color=synthetic_color, markersize=6)
+                # Plot the cumulative distributions for this column
+                plt.plot(x_positions, real_cumsum, 'o-', color=real_color, markersize=6, label='Real')
+                plt.plot(x_positions, synth_cumsum, 'o-', color=synthetic_color, markersize=6, label='Fake')
                 
-                # Add the tick positions and labels
-                x_ticks_pos.extend(x_positions)
-                x_ticks_labels.extend(all_categories)
+                # Set up the plot
+                plt.grid(True, linestyle='-', alpha=0.3)
+                plt.ylim(0, 1.05)
+                plt.ylabel('Cumsum')
+                plt.title(col)
                 
-                # Move to next column position with a gap
-                x_position += len(all_categories) + 1
-            
-            # Set the axis labels and limits
-            ax.set_xlabel('')
-            ax.set_ylabel('Cumsum')
-            ax.set_ylim(0, 1.05)
-            
-            # Set x-ticks and labels
-            ax.set_xticks(x_ticks_pos)
-            ax.set_xticklabels(x_ticks_labels, rotation=45, ha='right', fontsize=8)
-            
-            # Add a title for the group
-            fig.suptitle(f"{group_name}", fontsize=16)
-            plt.tight_layout()
-            fig.subplots_adjust(top=0.9)  # Make room for the title
-            
-            fig_list.append(fig)
-            
-            if save_path:
-                fig.savefig(f"{save_path}_{group_name}.png")
-                plt.close(fig)
+                # Configure x-axis
+                plt.xticks(x_positions, all_categories, rotation=45, ha='right')
+                
+                # Add a legend
+                plt.legend(loc='upper left')
+                
+                # Adjust layout
+                plt.tight_layout()
+                
+                # Save the figure to make sure it's fully rendered before adding to list
+                fig = plt.gcf()
+                # Draw the figure to make sure it's rendered properly
+                fig.canvas.draw()
+                # Now add it to the list
+                fig_list.append(fig)
+                
+                if save_path:
+                    fig.savefig(f"{save_path}_{col}.png", bbox_inches='tight')
         
-        return fig_list if fig_list else None
+        return fig_list
 
     def generate_evaluation_plots(self):
         """Generate evaluation plots with enhanced error handling"""
@@ -557,25 +523,31 @@ class DataEvaluator:
                 width = 0.35
     
                 # Plot bars
-                ax.bar([i - width/2 for i in x], real_means, width, label='Real Mean', color='blue', alpha=0.5)
-                ax.bar([i + width/2 for i in x], synth_means, width, label='Synthetic Mean', color='red', alpha=0.5)
-                ax.bar([i - width/2 for i in x], real_stds, width, bottom=real_means, label='Real Std', color='blue', alpha=0.3)
-                ax.bar([i + width/2 for i in x], synth_stds, width, bottom=synth_means, label='Synthetic Std', color='red', alpha=0.3)
+                ax.bar([i - width/2 for i in x], real_means, width, label='Real Mean', 
+                       color='#4c71af', alpha=0.5)  # Use Table Evaluator colors
+                ax.bar([i + width/2 for i in x], synth_means, width, label='Synthetic Mean', 
+                       color='#dd8452', alpha=0.5)
+                ax.bar([i - width/2 for i in x], real_stds, width, bottom=real_means, 
+                       label='Real Std', color='#4c71af', alpha=0.3)
+                ax.bar([i + width/2 for i in x], synth_stds, width, bottom=synth_means, 
+                       label='Synthetic Std', color='#dd8452', alpha=0.3)
     
                 ax.set_xticks(x)
                 ax.set_xticklabels(numeric_cols, rotation=45, ha='right')
                 ax.set_title('Absolute Log Mean and STDs of numeric data')
                 ax.legend()
                 plt.tight_layout()
+                
+                # Make sure it's fully rendered before adding to the list
+                fig_mean_std.canvas.draw()
                 figures.append(fig_mean_std)
     
-                # Create figure for cumulative sums of numerical data
-                fig_num_cumsums = plt.figure(figsize=(15, 10))
-                cols_per_row = min(4, len(numeric_cols))
-                rows = (len(numeric_cols) - 1) // cols_per_row + 1
-    
-                for i, col in enumerate(numeric_cols):
-                    ax = fig_num_cumsums.add_subplot(rows, cols_per_row, i + 1)
+                # Instead of a single large figure, create individual figures for each column 
+                # to avoid rendering issues in Streamlit
+                for col in numeric_cols:
+                    # Create a new figure for each column
+                    fig = plt.figure(figsize=(8, 6))
+                    ax = fig.add_subplot(111)
     
                     # Calculate CDFs efficiently
                     real_col = np.sort(self.real_data[col].values)
@@ -583,21 +555,32 @@ class DataEvaluator:
     
                     # Use fewer points for smoother plotting
                     n_points = min(1000, len(real_col))
-                    indices = np.linspace(0, len(real_col)-1, n_points).astype(int)
+                    indices_real = np.linspace(0, len(real_col)-1, n_points).astype(int)
+                    indices_synth = np.linspace(0, len(synth_col)-1, n_points).astype(int) if len(synth_col) > 0 else []
     
                     real_cdf = np.arange(1, len(real_col) + 1) / len(real_col)
-                    synth_cdf = np.arange(1, len(synth_col) + 1) / len(synth_col)
+                    synth_cdf = np.arange(1, len(synth_col) + 1) / len(synth_col) if len(synth_col) > 0 else []
     
-                    # Plot CDFs using subset of points
-                    ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue')
-                    ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red')
-                    ax.set_title(col)
+                    # Plot CDFs using subset of points with Table Evaluator colors
+                    ax.plot(real_col[indices_real], real_cdf[indices_real], 
+                           label='Real', color='#4c71af', linewidth=2)
+                    
+                    if len(synth_col) > 0:
+                        ax.plot(synth_col[indices_synth], synth_cdf[indices_synth], 
+                               label='Synthetic', color='#dd8452', linewidth=2)
+                    
+                    ax.set_title(f"Cumulative Distribution: {col}")
                     ax.set_xlabel('Value')
                     ax.set_ylabel('Cumulative Probability')
+                    ax.grid(True, linestyle='-', alpha=0.3)
                     ax.legend()
     
-                plt.tight_layout()
-                figures.append(fig_num_cumsums)
+                    # Make sure layout is tight
+                    plt.tight_layout()
+                    
+                    # Ensure figure is rendered before adding to list
+                    fig.canvas.draw()
+                    figures.append(fig)
                 
             # Generate categorical CDF plots
             categorical_cdfs = self.plot_categorical_cdf()
