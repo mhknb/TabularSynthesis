@@ -336,7 +336,11 @@ class DataEvaluator:
     def plot_distributions(self, save_path: str = None):
         """Plot distribution comparisons for numerical columns with enhanced error handling"""
         try:
-            numerical_cols = self.real_data.select_dtypes(include=['int64', 'float64']).columns
+            # Convert data to numeric where possible
+            real_data = self.real_data.apply(pd.to_numeric, errors='ignore')
+            synth_data = self.synthetic_data.apply(pd.to_numeric, errors='ignore')
+            
+            numerical_cols = real_data.select_dtypes(include=['int64', 'float64']).columns
             if len(numerical_cols) == 0:
                 fig, ax = plt.subplots(1, 1, figsize=(10, 5))
                 ax.text(0.5, 0.5, 'No numerical columns to compare', 
@@ -347,24 +351,41 @@ class DataEvaluator:
                 return fig
 
             n_cols = len(numerical_cols)
-            fig = plt.figure(figsize=(12, 5*n_cols))
+            n_rows = (n_cols + 1) // 2  # Two columns of plots
+            fig = plt.figure(figsize=(15, 5*n_rows))
             
             for idx, col in enumerate(numerical_cols, 1):
-                plt.subplot(n_cols, 1, idx)
+                plt.subplot(n_rows, 2, idx)
                 
-                # Create melted dataframe for seaborn
-                real_df = pd.DataFrame({'value': self.real_data[col], 'type': 'Real'})
-                synth_df = pd.DataFrame({'value': self.synthetic_data[col], 'type': 'Synthetic'})
-                combined_df = pd.concat([real_df, synth_df])
+                try:
+                    # Create melted dataframe for seaborn
+                    real_vals = real_data[col].dropna()
+                    synth_vals = synth_data[col].dropna()
+                    
+                    real_df = pd.DataFrame({'value': real_vals, 'type': 'Real'})
+                    synth_df = pd.DataFrame({'value': synth_vals, 'type': 'Synthetic'})
+                    combined_df = pd.concat([real_df, synth_df])
+                    
+                    # Remove any infinite values
+                    combined_df = combined_df.replace([np.inf, -np.inf], np.nan).dropna()
+                    
+                    if len(combined_df) > 0:
+                        # Plot distributions using seaborn
+                        sns.histplot(data=combined_df, x='value', hue='type', stat='density',
+                                   common_norm=False, alpha=0.4, bins=30)
+                        sns.kdeplot(data=combined_df, x='value', hue='type', linewidth=2)
+                    else:
+                        plt.text(0.5, 0.5, f'No valid data for {col}',
+                               horizontalalignment='center', verticalalignment='center')
+                    
+                    plt.title(f'Distribution - {col}')
+                    plt.xlabel(col)
+                    plt.ylabel('Density')
+                except Exception as e:
+                    plt.text(0.5, 0.5, f'Error plotting {col}: {str(e)}',
+                           horizontalalignment='center', verticalalignment='center')
                 
-                # Plot distributions using seaborn
-                sns.histplot(data=combined_df, x='value', hue='type', stat='density', 
-                           common_norm=False, alpha=0.5)
-                sns.kdeplot(data=combined_df, x='value', hue='type', linewidth=2)
-                
-                plt.title(f'Distribution Comparison - {col}')
-                plt.xlabel(col)
-                plt.ylabel('Density')
+            plt.tight_layout()
 
             plt.tight_layout()
             if save_path:
