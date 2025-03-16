@@ -41,16 +41,6 @@ st.set_page_config(page_title="Synthetic Data Generator", layout="wide")
 
 # Initialize PyTorch and configure device
 from src.utils.torch_init import init_torch
-
-# Fix for PyTorch path errors with Streamlit
-# A simpler approach without modifying Streamlit internals
-import torch
-
-# Preload key torch modules to prevent file watcher issues
-_ = torch.nn
-_ = torch.optim
-_ = torch.utils.data
-
 device = init_torch()
 
 # Initialize event loop for async operations if needed
@@ -355,7 +345,8 @@ def main():
                             n_critic=model_config['n_critic'],
                             lr_g=model_config['lr_g'],
                             lr_d=model_config['lr_d'],
-                            device=device
+                            device=device,
+                            use_wandb=True
                         )
 
                         # Run Bayesian optimization if requested
@@ -443,10 +434,8 @@ def main():
                         for epoch in range(model_config['epochs']):
                             epoch_metrics = {}
                             for i, batch_data in enumerate(train_loader):
-                                # Remove the current_step parameter as it's not in the base class
-                                metrics = gan.train_step(batch_data)
-                                if metrics:  # Ensure metrics is not None
-                                    epoch_metrics.update(metrics)
+                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
+                                epoch_metrics.update(metrics)
 
                             # Update progress
                             progress = (epoch + 1) / model_config['epochs']
@@ -458,9 +447,9 @@ def main():
                         os.makedirs(model_dir, exist_ok=True)
                         torch.save(gan.state_dict(), os.path.join(model_dir, f"{model_config['model_type'].lower()}_model.pt"))
 
-                        # Finish wandb run if it's active
-                        if wandb.run is not None:
-                            wandb.finish()
+                        # Finish wandb run if it's a WGAN
+                        if model_config['model_type'] == 'WGAN':
+                            gan.finish_wandb()
 
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
                         # Generate data based on selected condition values with their proportions
