@@ -317,8 +317,8 @@ class DataEvaluator:
             synth_norm = 2 * (synth_sorted - synth_sorted.min()) / (synth_sorted.max() - synth_sorted.min()) - 1
 
             # Plot
-            axes[row, col_idx].plot(real_norm, real_cdf, label='Real Data', color='blue')
-            axes[row, col_idx].plot(synth_norm, synth_cdf, label='Synthetic Data', color='orange')
+            axes[row, col_idx].plot(real_norm, real_cdf, label='Real Data', color='blue', alpha=0.6)
+            axes[row, col_idx].plot(synth_norm, synth_cdf, label='Synthetic Data', color='orange', alpha=0.6)
             axes[row, col_idx].set_title(f'{col}')
             axes[row, col_idx].set_xlabel('Normalized Value')
             axes[row, col_idx].set_ylabel('Cumulative Probability')
@@ -480,7 +480,7 @@ class DataEvaluator:
                         # Get sorted values for real and synthetic data
                         real_values = self.real_data[col].sort_values().values
                         synth_values = self.synthetic_data[col].sort_values().values
-                        
+
                         if len(real_values) == 0 or len(synth_values) == 0:
                             print(f"Warning: Empty values for column {col}")
                             continue
@@ -488,12 +488,12 @@ class DataEvaluator:
                         # Calculate cumulative probabilities (like in TableEvaluator)
                         real_y = np.arange(1, len(real_values) + 1) / len(real_values)
                         synth_y = np.arange(1, len(synth_values) + 1) / len(synth_values)
-                        
+
                         # Plot sorted values against cumulative probabilities
                         ax.plot(real_values, real_y, linestyle='none', marker='o', 
-                              label='Real', color='darkblue', markersize=8)
+                              label='Real', color='darkblue', markersize=8, alpha=0.6)
                         ax.plot(synth_values, synth_y, linestyle='none', marker='o', 
-                              label='Fake', color='sandybrown', markersize=8, alpha=0.5)
+                              label='Fake', color='sandybrown', markersize=8, alpha=0.6)
 
                         # Set the plot limits and grid
                         ax.set_ylim(0, 1.05)
@@ -506,7 +506,7 @@ class DataEvaluator:
 
                         # Set x-ticks based on unique values
                         unique_values = sorted(self.real_data[col].unique())
-                    
+
                         if len(unique_values) <= 10:
                             ax.set_xticks(unique_values)
                             ax.set_xticklabels(unique_values, rotation=45, ha='right', fontsize=8)
@@ -597,7 +597,7 @@ class DataEvaluator:
                                 # Get sorted values for real and synthetic data
                                 real_values = self.real_data[col].sort_values().values
                                 synth_values = self.synthetic_data[col].sort_values().values
-                                
+
                                 if len(real_values) == 0 or len(synth_values) == 0:
                                     print(f"Warning: Empty values for column {col}")
                                     continue
@@ -605,22 +605,22 @@ class DataEvaluator:
                                 # Calculate cumulative probabilities (like in TableEvaluator)
                                 real_y = np.arange(1, len(real_values) + 1) / len(real_values)
                                 synth_y = np.arange(1, len(synth_values) + 1) / len(synth_values)
-                                
+
                                 # Plot sorted values against cumulative probabilities
                                 ax.plot(real_values, real_y, linestyle='none', marker='o', 
-                                     label='Real', color='darkblue', markersize=8)
+                                     label='Real', color='darkblue', markersize=8, alpha=0.6)
                                 ax.plot(synth_values, synth_y, linestyle='none', marker='o', 
-                                     label='Fake', color='sandybrown', markersize=8, alpha=0.7)
-                                
+                                     label='Fake', color='sandybrown', markersize=8, alpha=0.6)
+
                                 ax.set_ylim(0, 1.05)
                                 ax.grid(True, linestyle='--', alpha=0.7)
                                 ax.set_title(col)
                                 ax.set_xlabel('')
                                 ax.set_ylabel('Cumsum')
-                                
+
                                 # Set x-ticks based on unique values
                                 unique_values = sorted(self.real_data[col].unique())
-                                
+
                                 if len(unique_values) <= 10:
                                     ax.set_xticks(unique_values)
                                     ax.set_xticklabels(unique_values, rotation=45, ha='right', fontsize=8)
@@ -656,7 +656,7 @@ class DataEvaluator:
                                 # Get sorted values for real and synthetic data
                                 real_values = self.real_data[col].sort_values().values
                                 synth_values = self.synthetic_data[col].sort_values().values
-                                
+
                                 if len(real_values) == 0 or len(synth_values) == 0:
                                     print(f"Warning: Empty values for column {col}")
                                     continue
@@ -664,22 +664,22 @@ class DataEvaluator:
                                 # Calculate cumulative probabilities (like in TableEvaluator)
                                 real_y = np.arange(1, len(real_values) + 1) / len(real_values)
                                 synth_y = np.arange(1, len(synth_values) + 1) / len(synth_values)
-                                
+
                                 # Plot sorted values against cumulative probabilities
                                 ax.plot(real_values, real_y, linestyle='none', marker='o', 
-                                     label='Real', color='darkblue', markersize=8)
+                                     label='Real', color='darkblue', markersize=8, alpha=0.6)
                                 ax.plot(synth_values, synth_y, linestyle='none', marker='o', 
-                                     label='Fake', color='sandybrown', markersize=8, alpha=0.7)
-                                
+                                     label='Fake', color='sandybrown', markersize=8, alpha=0.6)
+
                                 ax.set_ylim(0, 1.05)
                                 ax.grid(True, linestyle='--', alpha=0.7)
                                 ax.set_title(col)
                                 ax.set_xlabel('')
                                 ax.set_ylabel('Cumsum')
-                                
+
                                 # Set x-ticks based on unique values
                                 unique_values = sorted(self.real_data[col].unique())
-                                
+
                                 if len(unique_values) <= 10:
                                     ax.set_xticks(unique_values)
                                     ax.set_xticklabels(unique_values, rotation=45, ha='right', fontsize=8)
@@ -751,8 +751,8 @@ class DataEvaluator:
                     synth_cdf = np.arange(1, len(synth_col) + 1) / len(synth_col)
 
                     # Plot CDFs using subset of points
-                    ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue')
-                    ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red')
+                    ax.plot(real_col[indices], real_cdf[indices], label='Real', color='blue', alpha=0.6)
+                    ax.plot(synth_col[indices], synth_cdf[indices], label='Synthetic', color='red', alpha=0.6)
                     ax.set_title(col)
                     ax.set_xlabel('Value')
                     ax.set_ylabel('Cumulative Probability')
