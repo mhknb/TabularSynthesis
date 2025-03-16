@@ -345,8 +345,7 @@ def main():
                             n_critic=model_config['n_critic'],
                             lr_g=model_config['lr_g'],
                             lr_d=model_config['lr_d'],
-                            device=device,
-                            use_wandb=True
+                            device=device
                         )
 
                         # Run Bayesian optimization if requested
@@ -434,8 +433,10 @@ def main():
                         for epoch in range(model_config['epochs']):
                             epoch_metrics = {}
                             for i, batch_data in enumerate(train_loader):
-                                metrics = gan.train_step(batch_data, current_step=epoch * len(train_loader) + i)
-                                epoch_metrics.update(metrics)
+                                # Remove the current_step parameter as it's not in the base class
+                                metrics = gan.train_step(batch_data)
+                                if metrics:  # Ensure metrics is not None
+                                    epoch_metrics.update(metrics)
 
                             # Update progress
                             progress = (epoch + 1) / model_config['epochs']
@@ -447,9 +448,9 @@ def main():
                         os.makedirs(model_dir, exist_ok=True)
                         torch.save(gan.state_dict(), os.path.join(model_dir, f"{model_config['model_type'].lower()}_model.pt"))
 
-                        # Finish wandb run if it's a WGAN
-                        if model_config['model_type'] == 'WGAN':
-                            gan.finish_wandb()
+                        # Finish wandb run if it's active
+                        if wandb.run is not None:
+                            wandb.finish()
 
                     if model_config['model_type'] == 'CGAN' and 'condition_values' in model_config and model_config['condition_values']:
                         # Generate data based on selected condition values with their proportions
