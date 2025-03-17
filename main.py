@@ -887,28 +887,7 @@ def main():
                                     "Lower nearest neighbor distance may indicate potential privacy concerns."
                                 )
 
-                    # Display evaluation results in chunks
-                    st.subheader("Data Distribution Analysis")
-                    with st.spinner("Generating distribution plots..."):
-                        plots = evaluator.generate_evaluation_plots()
 
-                        if plots and len(plots) > 0:
-                            # Display mean-std plot
-                            st.write(
-                                "Absolute Log Mean and STDs of numeric data")
-                            st.pyplot(plots[0])
-                            plt.close(plots[0])  # Clean up memory
-
-                            # Display cumulative sums plot for numerical features
-                            if len(plots) > 1:
-                                st.write(
-                                    "Cumulative Sums per Numerical Feature")
-                                st.pyplot(plots[1])
-                                plt.close(plots[1])  # Clean up memory
-
-                            # We're not displaying categorical CDF plots as requested
-                        else:
-                            st.warning("Could not generate distribution plots")
 
                 # Display final results
                 st.success("Synthetic data generated successfully!")
