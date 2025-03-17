@@ -754,8 +754,8 @@ def main():
                     
                     # Advanced Evaluation Metrics
                     with st.expander("Advanced Evaluation Metrics"):
-                        # Create 3 columns for better organization
-                        col1, col2, col3 = st.columns(3)
+                        # Create 2 columns for better organization
+                        col1, col2 = st.columns(2)
                         
                         # Column 1: Correlation and Similarity Metrics
                         with col1:
@@ -779,24 +779,8 @@ def main():
                                 st.metric("Overall Similarity Score", f"{similarity_score:.4f}", 
                                          delta=None, delta_color="normal")
                         
-                        # Column 2: PCA and Distribution Metrics
+                        # Column 2: Nearest Neighbor Metrics
                         with col2:
-                            st.subheader("Distribution Metrics")
-                            
-                            # PCA similarity
-                            pca_sim = all_metrics.get('pca_similarity', 0)
-                            if isinstance(pca_sim, (int, float)):
-                                st.metric("1-MAPE PCA Components", f"{pca_sim:.4f}")
-                            
-                            # Duplicate rows
-                            dup_count = all_metrics.get('duplicate_rows_count', 0)
-                            dup_pct = all_metrics.get('duplicate_rows_percentage', 0)
-                            if isinstance(dup_count, (int, float)) and isinstance(dup_pct, (int, float)):
-                                st.metric("Duplicate Rows Count", f"{dup_count}")
-                                st.metric("Duplicate Rows %", f"{dup_pct:.2f}%")
-                        
-                        # Column 3: Nearest Neighbor Metrics
-                        with col3:
                             st.subheader("Privacy Metrics")
                             
                             # Nearest neighbor stats
