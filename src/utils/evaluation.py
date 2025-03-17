@@ -761,6 +761,11 @@ class DataEvaluator:
                 plt.tight_layout()
                 figures.append(fig_num_cumsums)
 
+            # Generate categorical CDF plots
+            categorical_cdfs = self.plot_categorical_cdf()
+            if categorical_cdfs:
+                figures.extend(categorical_cdfs)
+
             print("Successfully generated evaluation plots")
             return figures
 
