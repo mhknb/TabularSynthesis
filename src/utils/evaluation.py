@@ -971,6 +971,133 @@ class DataEvaluator:
         except Exception as e:
             print(f"Error calculating similarity score: {str(e)}")
             return 0.0
+            
+    def get_quality_score_details(self, metrics: dict) -> dict:
+        """
+        Calculate detailed AI quality score with category breakdowns
+        
+        Returns:
+            Dictionary with overall score, category scores, and descriptive labels
+        """
+        try:
+            # Extract relevant metrics
+            corr_sim = metrics.get("correlation_similarity", 0)
+            corr_rmse = metrics.get("correlation_distance_rmse", 1)
+            corr_mae = metrics.get("correlation_distance_mae", 1)
+            duplicate_pct = metrics.get("duplicate_rows_percentage", 0)
+            nn_mean = metrics.get("nearest_neighbor_mean", 0)
+            nn_std = metrics.get("nearest_neighbor_std", 0)
+            ml_utility = metrics.get("ml_utility_score", 0)
+            
+            # Calculate category scores
+            
+            # 1. Structural similarity (correlation patterns)
+            corr_rmse_norm = max(0, 1 - min(corr_rmse, 1))
+            corr_mae_norm = max(0, 1 - min(corr_mae, 1))
+            structural_score = 0.6 * corr_sim + 0.25 * corr_rmse_norm + 0.15 * corr_mae_norm
+            structural_score = max(0, min(structural_score, 1))
+            
+            # 2. Distribution similarity (nearest neighbor distance)
+            nn_score = max(0, 1 - min(nn_mean / 10, 1))
+            nn_variance_score = max(0, 1 - min(nn_std / 5, 1))
+            distribution_score = 0.7 * nn_score + 0.3 * nn_variance_score
+            distribution_score = max(0, min(distribution_score, 1))
+            
+            # 3. Privacy score (based on duplicate percentage)
+            privacy_score = max(0, 1 - (duplicate_pct / 100))
+            
+            # 4. Utility score (either from ML utility or default)
+            utility_score = ml_utility if ml_utility > 0 else 0.5
+            
+            # Calculate overall quality score (weighted average)
+            weights = {
+                "structural": 0.35,
+                "distribution": 0.25,
+                "privacy": 0.15,
+                "utility": 0.25
+            }
+            
+            overall_score = (
+                weights["structural"] * structural_score +
+                weights["distribution"] * distribution_score +
+                weights["privacy"] * privacy_score +
+                weights["utility"] * utility_score
+            )
+            
+            overall_score = max(0, min(overall_score, 1))
+            
+            # Get descriptive labels
+            def get_quality_label(score):
+                if score >= 0.9:
+                    return "Excellent"
+                elif score >= 0.8:
+                    return "Very Good"
+                elif score >= 0.7:
+                    return "Good"
+                elif score >= 0.6:
+                    return "Satisfactory"
+                elif score >= 0.5:
+                    return "Average"
+                elif score >= 0.4:
+                    return "Below Average"
+                elif score >= 0.3:
+                    return "Poor"
+                else:
+                    return "Very Poor"
+            
+            # Get advice based on lowest category score
+            def get_improvement_advice(scores):
+                categories = ["structural", "distribution", "privacy", "utility"]
+                scores_list = [scores[cat] for cat in categories]
+                weakest_index = scores_list.index(min(scores_list))
+                weakest_category = categories[weakest_index]
+                
+                advice = {
+                    "structural": "Consider using a model that better preserves the correlation structure of your data.",
+                    "distribution": "Try adjusting the model parameters to better match the real data distribution.",
+                    "privacy": "Your synthetic data has too many duplicates from the original dataset, which may pose privacy risks.",
+                    "utility": "The synthetic data may not be as useful for machine learning tasks as the original data."
+                }
+                
+                return {
+                    "focus_area": weakest_category.capitalize(),
+                    "advice": advice[weakest_category]
+                }
+            
+            # Assemble detailed scores
+            category_scores = {
+                "structural": structural_score,
+                "distribution": distribution_score,
+                "privacy": privacy_score,
+                "utility": utility_score
+            }
+            
+            result = {
+                "overall_score": overall_score,
+                "overall_label": get_quality_label(overall_score),
+                "category_scores": category_scores,
+                "category_labels": {
+                    "structural": get_quality_label(structural_score),
+                    "distribution": get_quality_label(distribution_score),
+                    "privacy": get_quality_label(privacy_score),
+                    "utility": get_quality_label(utility_score)
+                },
+                "improvement": get_improvement_advice(category_scores)
+            }
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error calculating quality score details: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "overall_score": 0.0,
+                "overall_label": "Error",
+                "category_scores": {},
+                "category_labels": {},
+                "improvement": {"focus_area": "Error", "advice": "An error occurred during score calculation."}
+            }
 
     def evaluate_all(self, target_column=None, task_type='classification'):
         """Run all evaluations and return combined results"""
@@ -1068,6 +1195,19 @@ class DataEvaluator:
             except Exception as e:
                 results['similarity_score'] = 0
                 print(f"Error in calculate_similarity_score: {str(e)}")
+                
+            # AI Quality Score with detailed breakdown
+            try:
+                results['quality_score_details'] = self.get_quality_score_details(results)
+            except Exception as e:
+                results['quality_score_details'] = {
+                    "overall_score": 0.0,
+                    "overall_label": "Error",
+                    "category_scores": {},
+                    "category_labels": {},
+                    "improvement": {"focus_area": "Error", "advice": "An error occurred during score calculation."}
+                }
+                print(f"Error in get_quality_score_details: {str(e)}")
 
             return results
         except Exception as e:

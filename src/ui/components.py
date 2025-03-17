@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from typing import Tuple, Optional
+import numpy as np
+import matplotlib.pyplot as plt
+from typing import Tuple, Optional, Dict, Any
 import io
 
 def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
@@ -131,3 +133,115 @@ def training_progress(epoch: int, losses: dict):
     else:
         status_text.text(f"Epoch {epoch}: Generator Loss: {losses['generator_loss']:.4f}, "
                         f"Discriminator Loss: {losses['discriminator_loss']:.4f}")
+                        
+def display_quality_score(quality_score_details: Dict[str, Any]):
+    """
+    Display AI-powered quality score indicator with radar chart and recommendations
+    
+    Args:
+        quality_score_details: Dictionary containing quality score details from DataEvaluator
+    """
+    st.header("📊 AI Quality Assessment")
+    
+    if not quality_score_details or 'overall_score' not in quality_score_details:
+        st.warning("Quality score data is not available.")
+        return
+    
+    # Extract scores and labels
+    overall_score = quality_score_details.get('overall_score', 0)
+    overall_label = quality_score_details.get('overall_label', 'N/A')
+    category_scores = quality_score_details.get('category_scores', {})
+    category_labels = quality_score_details.get('category_labels', {})
+    improvement = quality_score_details.get('improvement', {})
+    
+    # Create columns for layout
+    col1, col2 = st.columns([1, 2])
+    
+    # Column 1: Overall score display
+    with col1:
+        st.subheader("Overall Quality")
+        
+        # Display score in a gauge-like format with color
+        score_color = get_score_color(overall_score)
+        st.markdown(
+            f"""
+            <div style="background-color: #f0f0f0; border-radius: 10px; padding: 10px; text-align: center;">
+                <h1 style="color: {score_color}; font-size: 3em; margin: 0;">{overall_score:.2f}</h1>
+                <p style="font-size: 1.5em; margin: 0;">{overall_label}</p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        
+        # Show improvement recommendation
+        st.subheader("Recommended Focus")
+        st.info(f"**{improvement.get('focus_area', 'N/A')}**: {improvement.get('advice', 'N/A')}")
+    
+    # Column 2: Radar chart for category scores
+    with col2:
+        st.subheader("Quality Dimensions")
+        
+        # Create radar chart
+        fig = create_radar_chart(category_scores)
+        st.pyplot(fig)
+        
+        # Display category scores in a table
+        st.markdown("#### Dimension Scores")
+        score_data = {
+            "Dimension": list(category_scores.keys()),
+            "Score": [f"{score:.2f}" for score in category_scores.values()],
+            "Rating": [category_labels.get(cat, "N/A") for cat in category_scores.keys()]
+        }
+        score_df = pd.DataFrame(score_data)
+        st.dataframe(score_df, hide_index=True)
+        
+def create_radar_chart(category_scores: Dict[str, float]):
+    """Create a radar chart for quality score dimensions"""
+    categories = list(category_scores.keys())
+    categories = [cat.capitalize() for cat in categories]
+    
+    values = list(category_scores.values())
+    
+    # Number of variables
+    N = len(categories)
+    
+    # What will be the angle of each axis in the plot
+    angles = [n / N * 2 * np.pi for n in range(N)]
+    angles += angles[:1]  # Close the loop
+    
+    # Values need to be repeated to close the loop
+    values += values[:1]
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(8, 6), subplot_kw=dict(polar=True))
+    
+    # Draw one axis per variable and add labels
+    plt.xticks(angles[:-1], categories, color='grey', size=12)
+    
+    # Draw the chart
+    ax.plot(angles, values, linewidth=2, linestyle='solid', color='#4CAF50')
+    ax.fill(angles, values, color='#4CAF50', alpha=0.25)
+    
+    # Fix axis to go from 0 to 1
+    ax.set_ylim(0, 1)
+    
+    # Add grid lines and labels
+    ax.set_rlabel_position(0)
+    plt.yticks([0.2, 0.4, 0.6, 0.8], ["0.2", "0.4", "0.6", "0.8"], color="grey", size=10)
+    plt.ylim(0, 1)
+    
+    # Add a title
+    plt.title("Quality Dimensions", size=15, y=1.1)
+    
+    return fig
+
+def get_score_color(score: float) -> str:
+    """Return appropriate color based on score"""
+    if score >= 0.8:
+        return "#2E7D32"  # Dark green
+    elif score >= 0.6:
+        return "#4CAF50"  # Green
+    elif score >= 0.4:
+        return "#FF9800"  # Orange
+    else:
+        return "#F44336"  # Red
