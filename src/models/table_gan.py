@@ -205,12 +205,29 @@ class TableGAN(BaseGAN):
         return loss / max(1, data.shape[1] - 1)
 
     def train_step(self, real_data: torch.Tensor) -> dict:
-        """Perform enhanced training step with relationship preservation"""
+        """Perform enhanced training step with relationship preservation and range matching"""
         if not self.validate_batch(real_data):
             raise ValueError(f"Batch size {real_data.size(0)} is too small. Minimum required: {self.min_batch_size}")
 
         batch_size = real_data.size(0)
         real_data = real_data.to(self.device)
+
+        # Store min and max values for each column for range preservation
+        # Update with exponential moving average to capture the data range across batches
+        if not hasattr(self, 'data_min') or not hasattr(self, 'data_max'):
+            # Initialize min/max tracking on first batch
+            self.data_min = torch.min(real_data, dim=0)[0]
+            self.data_max = torch.max(real_data, dim=0)[0]
+            self.data_range = self.data_max - self.data_min
+        else:
+            # Update min/max with exponential moving average
+            current_min = torch.min(real_data, dim=0)[0]
+            current_max = torch.max(real_data, dim=0)[0]
+            # Use a slow decay to gradually capture the true range
+            decay = 0.95
+            self.data_min = decay * self.data_min + (1 - decay) * torch.min(self.data_min, current_min)
+            self.data_max = decay * self.data_max + (1 - decay) * torch.max(self.data_max, current_max)
+            self.data_range = self.data_max - self.data_min
 
         # Train Discriminator
         self.d_optimizer.zero_grad()
@@ -250,6 +267,23 @@ class TableGAN(BaseGAN):
         
         # Column relationship preservation loss - crucial for this dataset pattern
         relationship_loss = self.calculate_relationship_loss(fake_data)
+
+        # Range preservation loss - helps match the synthetic data range to the original data
+        fake_min = torch.min(fake_data, dim=0)[0]
+        fake_max = torch.max(fake_data, dim=0)[0]
+        fake_range = fake_max - fake_min
+
+        # Calculate range loss - penalize when the synthetic data range doesn't match original data range
+        # We divide by data_range to normalize the loss across different scales of features
+        epsilon = 1e-8  # Small value to avoid division by zero
+        range_loss = torch.mean(torch.abs(fake_range - self.data_range) / (self.data_range + epsilon))
+        
+        # Also penalize if min/max values are too far from original
+        min_loss = torch.mean(torch.abs(fake_min - self.data_min) / (self.data_range + epsilon))
+        max_loss = torch.mean(torch.abs(fake_max - self.data_max) / (self.data_range + epsilon))
+        
+        # Combined range loss
+        total_range_loss = range_loss + 0.5 * (min_loss + max_loss)
         
         # Optional: Feature matching loss for generator too
         if hasattr(self.discriminator, 'main'):
@@ -263,8 +297,15 @@ class TableGAN(BaseGAN):
         self.alpha = getattr(self, 'alpha', 1.0)  # Weight for adversarial loss
         self.beta = getattr(self, 'beta', 10.0)   # Higher weight for relationship loss to emphasize the pattern
         self.gamma = getattr(self, 'gamma', 0.1)  # Weight for feature matching loss
+        self.delta = getattr(self, 'delta', 2.0)  # Weight for range preservation loss
         
-        g_loss = self.alpha * g_adv_loss + self.beta * relationship_loss + self.gamma * g_feature_loss
+        g_loss = (
+            self.alpha * g_adv_loss + 
+            self.beta * relationship_loss + 
+            self.gamma * g_feature_loss + 
+            self.delta * total_range_loss
+        )
+        
         g_loss.backward()
         self.g_optimizer.step()
 
@@ -276,6 +317,7 @@ class TableGAN(BaseGAN):
             'd_fake_loss': d_loss_fake.item(),
             'g_adv_loss': g_adv_loss.item(),
             'relationship_loss': relationship_loss.item(),
+            'range_loss': total_range_loss.item(),
             'feature_loss': g_feature_loss.item(),
             'd_real_mean': output_real.mean().item(),
             'd_fake_mean': output_fake.mean().item()
@@ -310,10 +352,15 @@ class TableGAN(BaseGAN):
             'hidden_dim': self.hidden_dim,
             'device': self.device,
             'min_batch_size': self.min_batch_size,
-            # Save relationship loss weights
-            'alpha': getattr(self, 'alpha', 1.0),
-            'beta': getattr(self, 'beta', 10.0),
-            'gamma': getattr(self, 'gamma', 0.1)
+            # Save loss weights
+            'alpha': getattr(self, 'alpha', 1.0),  # Adversarial loss weight
+            'beta': getattr(self, 'beta', 10.0),   # Relationship loss weight
+            'gamma': getattr(self, 'gamma', 0.1),  # Feature matching loss weight
+            'delta': getattr(self, 'delta', 2.0),  # Range preservation loss weight
+            # Save data range information if available
+            'data_min': getattr(self, 'data_min', None),
+            'data_max': getattr(self, 'data_max', None),
+            'data_range': getattr(self, 'data_range', None)
         }
 
     def load_state_dict(self, state_dict):
@@ -327,10 +374,19 @@ class TableGAN(BaseGAN):
         self.device = state_dict['device']
         self.min_batch_size = state_dict.get('min_batch_size', 2)  # Default for backward compatibility
         
-        # Load relationship loss weights with defaults for backward compatibility
-        self.alpha = state_dict.get('alpha', 1.0)
-        self.beta = state_dict.get('beta', 10.0)
-        self.gamma = state_dict.get('gamma', 0.1)
+        # Load loss weights with defaults for backward compatibility
+        self.alpha = state_dict.get('alpha', 1.0)   # Adversarial loss weight
+        self.beta = state_dict.get('beta', 10.0)    # Relationship loss weight
+        self.gamma = state_dict.get('gamma', 0.1)   # Feature matching loss weight
+        self.delta = state_dict.get('delta', 2.0)   # Range preservation loss weight
+        
+        # Load data range information if available
+        if state_dict.get('data_min') is not None:
+            self.data_min = state_dict['data_min']
+        if state_dict.get('data_max') is not None:
+            self.data_max = state_dict['data_max']
+        if state_dict.get('data_range') is not None:
+            self.data_range = state_dict['data_range']
 
     def optimize_hyperparameters(self, train_loader, n_epochs=50, n_iterations=10):
         """
@@ -349,14 +405,15 @@ class TableGAN(BaseGAN):
         import pandas as pd
         import numpy as np
 
-        # Define parameter ranges with relationship loss weights
+        # Define parameter ranges with all loss weights
         param_ranges = {
             'lr_d': (0.00001, 0.001),
             'lr_g': (0.00001, 0.001),
             'dropout_rate': (0.1, 0.5),
             'alpha': (0.5, 2.0),        # Weight for adversarial loss
             'beta': (5.0, 15.0),        # Weight for relationship loss - important for this dataset
-            'gamma': (0.05, 0.2)        # Weight for feature matching loss
+            'gamma': (0.05, 0.2),       # Weight for feature matching loss
+            'delta': (1.0, 5.0)         # Weight for range preservation loss
         }
 
         # Define objective function
