@@ -875,7 +875,7 @@ def main():
                     st.subheader("Data Distribution Analysis")
                     with st.spinner("Generating distribution plots..."):
                         # Check if there are any numerical columns to plot
-                        numerical_cols = original_df.select_dtypes(include=['int64', 'float64']).columns
+                        numerical_cols = evaluator.real_data.select_dtypes(include=['int64', 'float64']).columns
                         
                         if len(numerical_cols) > 0:
                             # Plot cumulative distribution for numerical features only
