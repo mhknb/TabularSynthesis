@@ -774,87 +774,48 @@ def main():
                     all_metrics = evaluator.evaluate_all(target_column=target_col, task_type=task_type)
                     
                     # ML utility evaluation
-                    with st.expander("ML Utility Evaluation"):
+                    with st.expander("ML Utility Evaluation (TSTR)"):
                         if 'ml_utility' in all_metrics and isinstance(all_metrics['ml_utility'], dict):
                             ml_metrics = all_metrics['ml_utility']
-                            
-                            # Create two columns for TSTR and TRTS side by side
-                            col1, col2 = st.columns(2)
-                            
-                            # TSTR: Train-Synthetic-Test-Real
-                            with col1:
-                                st.subheader("Train-Synthetic-Test-Real (TSTR)")
-                                st.markdown("*Training on synthetic data, testing on real data*")
-                                
-                                if 'tstr' in ml_metrics and isinstance(ml_metrics['tstr'], dict):
-                                    tstr_metrics = ml_metrics['tstr']
-                                    
-                                    # Create metrics for display
-                                    for metric, value in tstr_metrics.items():
-                                        if isinstance(value, (int, float)):
-                                            st.metric(
-                                                label=metric.replace('_', ' ').title(),
-                                                value=f"{value:.4f}"
-                                            )
-                                        else:
-                                            st.write(f"{metric}: {value}")
+                            st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
+                            for metric, value in ml_metrics.items():
+                                if isinstance(value, (int, float)):
+                                    st.write(f"{metric}: {value:.4f}")
                                 else:
-                                    st.write("TSTR metrics not available.")
-                            
-                            # TRTS: Train-Real-Test-Synthetic
-                            with col2:
-                                st.subheader("Train-Real-Test-Synthetic (TRTS)")
-                                st.markdown("*Training on real data, testing on synthetic data*")
-                                
-                                if 'trts' in ml_metrics and isinstance(ml_metrics['trts'], dict):
-                                    trts_metrics = ml_metrics['trts']
-                                    
-                                    # Create metrics for display
-                                    for metric, value in trts_metrics.items():
-                                        if isinstance(value, (int, float)):
-                                            st.metric(
-                                                label=metric.replace('_', ' ').title(),
-                                                value=f"{value:.4f}"
-                                            )
-                                        else:
-                                            st.write(f"{metric}: {value}")
-                                else:
-                                    st.write("TRTS metrics not available.")
-                                    
-                            # Add explanation of what these metrics mean
-                            st.markdown("""
-                            **Understanding These Metrics:**
-                            - **Real Model**: Performance of a model trained and tested on real data (baseline)
-                            - **Synthetic Model**: Performance of a model trained on synthetic data (TSTR) or tested on synthetic data (TRTS)
-                            - **Relative Performance**: How well the synthetic data performs compared to real data (higher is better)
-                            """)
+                                    st.write(f"{metric}: {value}")
                         else:
                             st.write("ML utility metrics not available.")
                     
                     # Advanced Evaluation Metrics
-                    with st.expander("Correlation Metrics"):
+                    with st.expander("Advanced Evaluation Metrics"):
                         # Create 2 columns for better organization
                         col1, col2 = st.columns(2)
                         
-                        # Column 1: Correlation Metrics
+                        # Column 1: Correlation and Similarity Metrics
                         with col1:
-                            st.subheader("Correlation Analysis")
+                            st.subheader("Correlation Metrics")
                             
                             # Correlation similarity
                             corr_sim = all_metrics.get('correlation_similarity', 0)
                             if isinstance(corr_sim, (int, float)):
                                 st.metric("Correlation Similarity", f"{corr_sim:.4f}")
                             
-                            # Explanation of correlation similarity
-                            st.markdown("""
-                            **Correlation Similarity** measures how well the synthetic data preserves 
-                            relationships between variables compared to the real data.
-                            Higher values (closer to 1.0) indicate better preservation of correlation patterns.
-                            """)
+                            # Correlation distance metrics
+                            corr_rmse = all_metrics.get('correlation_distance_rmse', 0)
+                            corr_mae = all_metrics.get('correlation_distance_mae', 0)
+                            if isinstance(corr_rmse, (int, float)) and isinstance(corr_mae, (int, float)):
+                                st.metric("Column Correlation RMSE", f"{corr_rmse:.4f}")
+                                st.metric("Column Correlation MAE", f"{corr_mae:.4f}")
+                                
+                            # Overall similarity score
+                            similarity_score = all_metrics.get('similarity_score', 0)
+                            if isinstance(similarity_score, (int, float)):
+                                st.metric("Overall Similarity Score", f"{similarity_score:.4f}", 
+                                         delta=None, delta_color="normal")
                         
-                        # Column 2: Nearest Neighbor Metrics (kept for privacy assessment)
+                        # Column 2: Nearest Neighbor Metrics
                         with col2:
-                            st.subheader("Privacy Assessment")
+                            st.subheader("Privacy Metrics")
                             
                             # Nearest neighbor stats
                             nn_mean = all_metrics.get('nearest_neighbor_mean', 0)
@@ -862,38 +823,30 @@ def main():
                             if isinstance(nn_mean, (int, float)) and isinstance(nn_std, (int, float)):
                                 st.metric("Nearest Neighbor Mean", f"{nn_mean:.4f}")
                                 st.metric("Nearest Neighbor Std", f"{nn_std:.4f}")
-                                
-                                # More detailed explanation about privacy implications
-                                st.markdown("""
-                                **Nearest Neighbor Distance** measures how close synthetic data points are to real data points.
-                                
-                                * **Higher values** suggest better privacy protection (synthetic data less likely to leak real information)
-                                * **Lower values** may indicate potential privacy concerns (synthetic data too similar to real data)
-                                """)
+                                st.info("Lower nearest neighbor distance may indicate potential privacy concerns.")
                     
                     # Display evaluation results in chunks
                     st.subheader("Data Distribution Analysis")
                     with st.spinner("Generating distribution plots..."):
-                        # Check if there are any numerical columns to plot
-                        numerical_cols = original_df.select_dtypes(include=['int64', 'float64']).columns
-                        
-                        if len(numerical_cols) > 0:
-                            # Plot cumulative distribution for numerical features only
-                            st.write("**Cumulative Distribution Function (CDF) for Numerical Features**")
-                            st.markdown("""
-                            These plots show how well the synthetic data distributions match the real data distributions.
-                            Closer lines indicate better quality synthetic data for that feature.
-                            """)
-                            
-                            # Use the plot_cumulative_distributions method directly
-                            cdf_plot = evaluator.plot_cumulative_distributions()
-                            if cdf_plot is not None:
-                                st.pyplot(cdf_plot)
-                                plt.close(cdf_plot)  # Clean up memory
-                            else:
-                                st.warning("Could not generate CDF plots for numerical features")
+                        plots = evaluator.generate_evaluation_plots()
+
+                        if plots and len(plots) > 0:
+                            # Display mean-std plot
+                            st.write(
+                                "Absolute Log Mean and STDs of numeric data")
+                            st.pyplot(plots[0])
+                            plt.close(plots[0])  # Clean up memory
+
+                            # Display cumulative sums plot for numerical features
+                            if len(plots) > 1:
+                                st.write(
+                                    "Cumulative Sums per Numerical Feature")
+                                st.pyplot(plots[1])
+                                plt.close(plots[1])  # Clean up memory
+
+                            # We're not displaying categorical CDF plots as requested
                         else:
-                            st.info("No numerical features found for distribution analysis")
+                            st.warning("Could not generate distribution plots")
 
                 # Display final results
                 st.success("Synthetic data generated successfully!")

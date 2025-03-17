@@ -149,11 +149,7 @@ class DataEvaluator:
         return comparison
 
     def evaluate_ml_utility(self, target_column: str, task_type: str = 'classification', test_size: float = 0.2) -> dict:
-        """Evaluate ML utility using both TSTR and TRTS methodologies
-        
-        TSTR: Train-Synthetic-Test-Real (model trained on synthetic data, tested on real data)
-        TRTS: Train-Real-Test-Synthetic (model trained on real data, tested on synthetic data)
-        """
+        """Evaluate ML utility using Train-Synthetic-Test-Real (TSTR) methodology"""
         try:
             print("\nDEBUG - ML Utility Evaluation:")
             print(f"Target column: {target_column}")
@@ -166,96 +162,51 @@ class DataEvaluator:
             X_synthetic = self.synthetic_data[feature_cols]
             y_synthetic = self.synthetic_data[target_column]
 
-            # Split real data and synthetic data
+            # Split real data
             X_train_real, X_test_real, y_train_real, y_test_real = train_test_split(
                 X_real, y_real, test_size=test_size, random_state=42
             )
-            
-            X_train_synth, X_test_synth, y_train_synth, y_test_synth = train_test_split(
-                X_synthetic, y_synthetic, test_size=test_size, random_state=42
-            )
 
             # Preprocess features
-            X_train_real_processed, scalers, encoders = self.preprocess_features(X_train_real)
-            X_test_real_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
-            X_train_synth_processed = self.preprocess_features(X_train_synth, scalers=scalers, encoders=encoders)[0]
-            X_test_synth_processed = self.preprocess_features(X_test_synth, scalers=scalers, encoders=encoders)[0]
+            X_train_processed, scalers, encoders = self.preprocess_features(X_train_real)
+            X_test_processed = self.preprocess_features(X_test_real, scalers=scalers, encoders=encoders)[0]
+            X_synthetic_processed = self.preprocess_features(X_synthetic, scalers=scalers, encoders=encoders)[0]
 
             # Handle target variable
             if task_type == 'classification':
                 target_encoder = LabelEncoder()
                 target_encoder.fit(pd.concat([y_real, y_synthetic]))
-                y_train_real_encoded = target_encoder.transform(y_train_real)
-                y_test_real_encoded = target_encoder.transform(y_test_real)
-                y_train_synth_encoded = target_encoder.transform(y_train_synth)
-                y_test_synth_encoded = target_encoder.transform(y_test_synth)
-            else:
-                # For regression, no encoding needed
-                y_train_real_encoded = y_train_real
-                y_test_real_encoded = y_test_real
-                y_train_synth_encoded = y_train_synth
-                y_test_synth_encoded = y_test_synth
+                y_train_real = target_encoder.transform(y_train_real)
+                y_test_real = target_encoder.transform(y_test_real)
+                y_synthetic = target_encoder.transform(y_synthetic)
 
             # Initialize models based on task type
             if task_type == 'classification':
-                real_model_tstr = RandomForestClassifier(n_estimators=100, random_state=42)
-                synth_model_tstr = RandomForestClassifier(n_estimators=100, random_state=42)
-                real_model_trts = RandomForestClassifier(n_estimators=100, random_state=42)
-                synth_model_trts = RandomForestClassifier(n_estimators=100, random_state=42)
+                real_model = RandomForestClassifier(n_estimators=100, random_state=42)
+                synthetic_model = RandomForestClassifier(n_estimators=100, random_state=42)
                 metric_func = accuracy_score
                 metric_name = 'accuracy'
             else:
-                real_model_tstr = RandomForestRegressor(n_estimators=100, random_state=42)
-                synth_model_tstr = RandomForestRegressor(n_estimators=100, random_state=42)
-                real_model_trts = RandomForestRegressor(n_estimators=100, random_state=42)
-                synth_model_trts = RandomForestRegressor(n_estimators=100, random_state=42)
+                real_model = RandomForestRegressor(n_estimators=100, random_state=42)
+                synthetic_model = RandomForestRegressor(n_estimators=100, random_state=42)
                 metric_func = r2_score
                 metric_name = 'r2_score'
 
-            # TSTR: Train on synthetic, test on real
-            # -------------------------------------
-            # Train on real data (baseline)
-            real_model_tstr.fit(X_train_real_processed, y_train_real_encoded)
-            real_pred_tstr = real_model_tstr.predict(X_test_real_processed)
-            real_score_tstr = metric_func(y_test_real_encoded, real_pred_tstr)
-            
-            # Train on synthetic data
-            synth_model_tstr.fit(X_train_synth_processed, y_train_synth_encoded)
-            synth_pred_tstr = synth_model_tstr.predict(X_test_real_processed)
-            synth_score_tstr = metric_func(y_test_real_encoded, synth_pred_tstr)
-            
-            # Calculate relative performance
-            tstr_rel_performance = (synth_score_tstr / real_score_tstr) * 100 if real_score_tstr != 0 else 0
-            
-            # TRTS: Train on real, test on synthetic
-            # -------------------------------------
-            # Train on synthetic data (baseline)
-            synth_model_trts.fit(X_train_synth_processed, y_train_synth_encoded)
-            synth_pred_trts = synth_model_trts.predict(X_test_synth_processed)
-            synth_score_trts = metric_func(y_test_synth_encoded, synth_pred_trts)
-            
-            # Train on real data
-            real_model_trts.fit(X_train_real_processed, y_train_real_encoded)
-            real_pred_trts = real_model_trts.predict(X_test_synth_processed)
-            real_score_trts = metric_func(y_test_synth_encoded, real_pred_trts)
-            
-            # Calculate relative performance
-            trts_rel_performance = (real_score_trts / synth_score_trts) * 100 if synth_score_trts != 0 else 0
+            # Train and evaluate
+            real_model.fit(X_train_processed, y_train_real)
+            real_pred = real_model.predict(X_test_processed)
+            real_score = metric_func(y_test_real, real_pred)
 
-            # Combine results from both methodologies
+            synthetic_model.fit(X_synthetic_processed, y_synthetic)
+            synthetic_pred = synthetic_model.predict(X_test_processed)
+            synthetic_score = metric_func(y_test_real, synthetic_pred)
+
+            relative_performance = (synthetic_score / real_score) * 100 if real_score != 0 else 0
+
             return {
-                # TSTR results (Train on Synthetic, Test on Real)
-                'tstr': {
-                    f'real_model_{metric_name}': real_score_tstr,
-                    f'synthetic_model_{metric_name}': synth_score_tstr,
-                    'relative_performance_percentage': tstr_rel_performance
-                },
-                # TRTS results (Train on Real, Test on Synthetic)
-                'trts': {
-                    f'real_model_{metric_name}': real_score_trts,
-                    f'synthetic_model_{metric_name}': synth_score_trts,
-                    'relative_performance_percentage': trts_rel_performance
-                }
+                f'real_model_{metric_name}': real_score,
+                f'synthetic_model_{metric_name}': synthetic_score,
+                'relative_performance_percentage': relative_performance
             }
 
         except Exception as e:
@@ -445,10 +396,10 @@ class DataEvaluator:
         except Exception as e:
             results['column_statistics'] = f"Error: {str(e)}"
 
-        # The following metrics have been removed as requested:
-        # - Distribution metrics (divergence_metrics)
-        # - 1-MAPE PCA Components (inside calculate_pca_mape)
-        # - Duplicate Rows (inside count_duplicate_rows)
+        try:
+            results['divergence_metrics'] = self.calculate_distribution_divergence()
+        except Exception as e:
+            results['divergence_metrics'] = f"Error: {str(e)}"
 
         if target_column:
             if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
