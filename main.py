@@ -823,6 +823,12 @@ def main():
                                     st.write(f"{metric}: {value}")
                         else:
                             st.write("ML utility metrics not available.")
+                    
+                    # AI-powered Quality Score
+                    if 'quality_score_details' in all_metrics and isinstance(all_metrics['quality_score_details'], dict):
+                        components.display_quality_score(all_metrics['quality_score_details'])
+                    else:
+                        st.error("AI Quality Score data is not available.")
 
                     # Advanced Evaluation Metrics
                     with st.expander("Advanced Evaluation Metrics"):
