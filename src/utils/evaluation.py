@@ -785,45 +785,285 @@ class DataEvaluator:
         except Exception as e:
             print(f"Error calculating numerical stats: {str(e)}")
             return {}
+            
+    def calculate_correlation_distance(self) -> dict:
+        """Calculate the RMSE and MAE between real and synthetic correlation matrices"""
+        try:
+            numeric_cols = self.real_data.select_dtypes(include=['float64', 'int64']).columns
+            
+            if len(numeric_cols) <= 1:
+                return {"correlation_distance_rmse": 0, "correlation_distance_mae": 0}
+                
+            # Calculate correlation matrices
+            real_corr = self.real_data[numeric_cols].corr().fillna(0)
+            synth_corr = self.synthetic_data[numeric_cols].corr().fillna(0)
+            
+            # Calculate RMSE
+            mse = np.mean((real_corr.values - synth_corr.values) ** 2)
+            rmse = np.sqrt(mse)
+            
+            # Calculate MAE
+            mae = np.mean(np.abs(real_corr.values - synth_corr.values))
+            
+            return {"correlation_distance_rmse": rmse, "correlation_distance_mae": mae}
+        except Exception as e:
+            print(f"Error calculating correlation distance: {str(e)}")
+            return {"correlation_distance_rmse": 0, "correlation_distance_mae": 0}
+            
+    def count_duplicate_rows(self) -> dict:
+        """Count duplicate rows between real and synthetic datasets"""
+        try:
+            # Convert both datasets to hashable format for comparison
+            real_tuples = [tuple(x) for x in self.real_data.values]
+            synthetic_tuples = [tuple(x) for x in self.synthetic_data.values]
+            
+            # Find duplicates
+            duplicates = set(real_tuples).intersection(set(synthetic_tuples))
+            count = len(duplicates)
+            
+            # Calculate percentage
+            percentage = (count / len(self.synthetic_data)) * 100 if len(self.synthetic_data) > 0 else 0
+            
+            return {
+                "duplicate_rows_count": count,
+                "duplicate_rows_percentage": percentage
+            }
+        except Exception as e:
+            print(f"Error calculating duplicate rows: {str(e)}")
+            return {"duplicate_rows_count": 0, "duplicate_rows_percentage": 0}
+            
+    def nearest_neighbor_distance(self, max_rows=20000) -> dict:
+        """
+        Calculate nearest neighbor distance between real and synthetic data
+        Limited to max_rows samples due to computational constraints
+        """
+        try:
+            # Select only numeric columns for distance calculation
+            numeric_cols = self.real_data.select_dtypes(include=['float64', 'int64']).columns
+            
+            if len(numeric_cols) == 0:
+                return {"nearest_neighbor_mean": 0, "nearest_neighbor_std": 0}
+                
+            # Limit the number of rows to avoid excessive computation
+            real_sample = self.real_data[numeric_cols].head(max_rows)
+            synth_sample = self.synthetic_data[numeric_cols].head(max_rows)
+            
+            # Standardize the data for fair distance calculation
+            scaler = StandardScaler()
+            real_scaled = scaler.fit_transform(real_sample)
+            synth_scaled = scaler.transform(synth_sample)
+            
+            # Calculate minimum distances for each synthetic sample to any real sample
+            distances = []
+            
+            # For smaller datasets, use pairwise distance
+            if len(real_scaled) < 5000 and len(synth_scaled) < 5000:
+                from scipy.spatial.distance import cdist
+                dist_matrix = cdist(synth_scaled, real_scaled, 'euclidean')
+                min_distances = np.min(dist_matrix, axis=1)
+                distances = min_distances.tolist()
+            else:
+                # For larger datasets, use a more memory-efficient approach
+                batch_size = 1000
+                for i in range(0, len(synth_scaled), batch_size):
+                    batch = synth_scaled[i:i+batch_size]
+                    batch_distances = []
+                    for j in range(0, len(real_scaled), batch_size):
+                        real_batch = real_scaled[j:j+batch_size]
+                        dist_matrix = np.sqrt(((batch[:, np.newaxis, :] - real_batch[np.newaxis, :, :]) ** 2).sum(axis=2))
+                        batch_min_distances = np.min(dist_matrix, axis=1)
+                        batch_distances.append(batch_min_distances)
+                    
+                    min_distances = np.min(np.column_stack(batch_distances), axis=1)
+                    distances.extend(min_distances.tolist())
+            
+            # Calculate statistics
+            mean_distance = np.mean(distances)
+            std_distance = np.std(distances)
+            
+            return {
+                "nearest_neighbor_mean": mean_distance,
+                "nearest_neighbor_std": std_distance
+            }
+        except Exception as e:
+            print(f"Error calculating nearest neighbor distance: {str(e)}")
+            return {"nearest_neighbor_mean": 0, "nearest_neighbor_std": 0}
+    
+    def calculate_pca_mape(self, n_components=5) -> float:
+        """Calculate 1-MAPE for PCA components comparison"""
+        try:
+            from sklearn.decomposition import PCA
+            
+            numeric_cols = self.real_data.select_dtypes(include=['float64', 'int64']).columns
+            
+            if len(numeric_cols) < n_components or len(numeric_cols) == 0:
+                return 0.0
+                
+            # Standardize the data
+            scaler = StandardScaler()
+            real_scaled = scaler.fit_transform(self.real_data[numeric_cols])
+            synth_scaled = scaler.transform(self.synthetic_data[numeric_cols])
+            
+            # Apply PCA to real data
+            pca = PCA(n_components=n_components)
+            pca.fit(real_scaled)
+            
+            # Transform both datasets
+            real_pca = pca.transform(real_scaled)
+            synth_pca = pca.transform(synth_scaled)
+            
+            # Calculate means of each component
+            real_means = np.mean(real_pca, axis=0)
+            synth_means = np.mean(synth_pca, axis=0)
+            
+            # Calculate MAPE
+            mape = np.mean(np.abs((real_means - synth_means) / (np.abs(real_means) + 1e-10))) * 100
+            
+            # Return 1-MAPE as similarity score (capped at 0)
+            similarity = max(0, 1 - (mape / 100))
+            
+            return similarity
+        except Exception as e:
+            print(f"Error calculating PCA MAPE: {str(e)}")
+            return 0.0
+    
+    def calculate_similarity_score(self, metrics: dict) -> float:
+        """Calculate aggregate similarity score from various metrics"""
+        try:
+            # Extract relevant metrics
+            corr_sim = metrics.get("correlation_similarity", 0)
+            corr_rmse = metrics.get("correlation_distance_rmse", 1)
+            duplicate_pct = metrics.get("duplicate_rows_percentage", 0)
+            nn_mean = metrics.get("nearest_neighbor_mean", 0)
+            pca_similarity = metrics.get("pca_similarity", 0)
+            
+            # Normalize metrics to 0-1 range
+            corr_rmse_norm = max(0, 1 - min(corr_rmse, 1))
+            nn_score = max(0, 1 - min(nn_mean / 10, 1))  # Assume mean distance > 10 is bad
+            
+            # Calculate final similarity score (weighted average)
+            weights = {
+                "correlation_similarity": 0.25,
+                "correlation_distance": 0.25,
+                "nearest_neighbor": 0.2,
+                "pca_similarity": 0.2,
+                "duplicate_penalty": 0.1
+            }
+            
+            # Apply duplicate penalty (reduce score if many duplicates)
+            duplicate_penalty = max(0, 1 - (duplicate_pct / 100))
+            
+            # Calculate weighted sum
+            similarity_score = (
+                weights["correlation_similarity"] * corr_sim +
+                weights["correlation_distance"] * corr_rmse_norm +
+                weights["nearest_neighbor"] * nn_score +
+                weights["pca_similarity"] * pca_similarity +
+                weights["duplicate_penalty"] * duplicate_penalty
+            )
+            
+            # Cap at 0-1 range
+            return max(0, min(similarity_score, 1))
+        except Exception as e:
+            print(f"Error calculating similarity score: {str(e)}")
+            return 0.0
 
     def evaluate_all(self, target_column=None, task_type='classification'):
         """Run all evaluations and return combined results"""
         try:
             results = {}
 
+            # Basic statistical similarity
             try:
                 results['statistical_similarity'] = self.statistical_similarity()
             except Exception as e:
                 results['statistical_similarity'] = f"Error: {str(e)}"
+                print(f"Error in statistical_similarity: {str(e)}")
 
+            # Correlation similarity (column correlations comparison)
             try:
                 results['correlation_similarity'] = self.correlation_similarity()
             except Exception as e:
                 results['correlation_similarity'] = f"Error: {str(e)}"
+                print(f"Error in correlation_similarity: {str(e)}")
 
+            # Column statistics
             try:
                 results['column_statistics'] = self.column_statistics()
             except Exception as e:
                 results['column_statistics'] = f"Error: {str(e)}"
+                print(f"Error in column_statistics: {str(e)}")
 
+            # Distribution divergence
             try:
                 results['divergence_metrics'] = self.calculate_distribution_divergence()
             except Exception as e:
                 results['divergence_metrics'] = f"Error: {str(e)}"
+                print(f"Error in calculate_distribution_divergence: {str(e)}")
 
+            # ML utility evaluation
             if target_column:
                 if target_column in self.real_data.columns and target_column in self.synthetic_data.columns:
                     try:
                         results['ml_utility'] = self.evaluate_ml_utility(target_column, task_type)
                     except Exception as e:
                         results['ml_utility'] = f"Error: {str(e)}"
+                        print(f"Error in evaluate_ml_utility: {str(e)}")
                 else:
                     results['ml_utility'] = "Target column not found in both datasets"
 
+            # Detailed numerical statistics
             try:
                 results['numerical_stats'] = self.calculate_numerical_stats()
             except Exception as e:
                 results['numerical_stats'] = f"Error: {str(e)}"
+                print(f"Error in calculate_numerical_stats: {str(e)}")
+                
+            # NEW METRICS
+            
+            # Column correlation distance metrics
+            try:
+                corr_distance = self.calculate_correlation_distance()
+                results['correlation_distance_rmse'] = corr_distance.get('correlation_distance_rmse', 0)
+                results['correlation_distance_mae'] = corr_distance.get('correlation_distance_mae', 0)
+            except Exception as e:
+                results['correlation_distance_rmse'] = 0
+                results['correlation_distance_mae'] = 0
+                print(f"Error in calculate_correlation_distance: {str(e)}")
+                
+            # Duplicate rows between real and synthetic data
+            try:
+                duplicates = self.count_duplicate_rows()
+                results['duplicate_rows_count'] = duplicates.get('duplicate_rows_count', 0)
+                results['duplicate_rows_percentage'] = duplicates.get('duplicate_rows_percentage', 0)
+            except Exception as e:
+                results['duplicate_rows_count'] = 0
+                results['duplicate_rows_percentage'] = 0
+                print(f"Error in count_duplicate_rows: {str(e)}")
+                
+            # Nearest neighbor distance statistics
+            try:
+                nn_metrics = self.nearest_neighbor_distance(max_rows=min(20000, len(self.real_data)))
+                results['nearest_neighbor_mean'] = nn_metrics.get('nearest_neighbor_mean', 0)
+                results['nearest_neighbor_std'] = nn_metrics.get('nearest_neighbor_std', 0)
+            except Exception as e:
+                results['nearest_neighbor_mean'] = 0
+                results['nearest_neighbor_std'] = 0
+                print(f"Error in nearest_neighbor_distance: {str(e)}")
+                
+            # PCA similarity (1-MAPE for PCA components)
+            try:
+                results['pca_similarity'] = self.calculate_pca_mape(n_components=min(5, len(self.real_data.columns)))
+            except Exception as e:
+                results['pca_similarity'] = 0
+                print(f"Error in calculate_pca_mape: {str(e)}")
+                
+            # Overall similarity score (aggregated metric)
+            try:
+                results['similarity_score'] = self.calculate_similarity_score(results)
+            except Exception as e:
+                results['similarity_score'] = 0
+                print(f"Error in calculate_similarity_score: {str(e)}")
 
             return results
         except Exception as e:
