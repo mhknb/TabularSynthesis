@@ -592,25 +592,9 @@ def main():
                                 st.pyplot(plots[1])
                                 plt.close(plots[1])  # Clean up memory
                             
-                            # Display categorical CDF plots
-                            if len(plots) > 2:
-                                st.write("### Categorical Feature Distributions")
-                                # The rest of the plots are categorical CDF plots
-                                for i in range(2, len(plots)):
-                                    st.pyplot(plots[i])
-                                    plt.close(plots[i])  # Clean up memory
+                            # We're not displaying categorical CDF plots as requested
                         else:
                             st.warning("Could not generate distribution plots")
-                            
-                    # Add a direct call to categorical plots if no categorical plots were found
-                    if plots and len(plots) <= 2:
-                        with st.spinner("Generating categorical distribution plots..."):
-                            cat_plots = evaluator.plot_categorical_cdf()
-                            if cat_plots:
-                                st.write("### Categorical Feature Distributions")
-                                for plot in cat_plots:
-                                    st.pyplot(plot)
-                                    plt.close(plot)  # Clean up memory
 
                 # Display final results
                 st.success("Synthetic data generated successfully!")
