@@ -524,6 +524,28 @@ def main():
                         if hasattr(gan, 'finish_wandb'):
                             gan.finish_wandb()
 
+                    # Determine number of samples to generate
+                    original_size = len(df)
+                    
+                    # Calculate number of rows to generate based on user settings
+                    if model_config.get('use_default_row_count', True):
+                        # Default: 25% of original data
+                        num_rows_to_generate = max(1, int(original_size * 0.25))
+                    else:
+                        if model_config.get('use_exact_row_count', False):
+                            # Use exact count specified by user, but cap at original size
+                            num_rows_to_generate = min(
+                                model_config.get('exact_row_count', 100), 
+                                original_size
+                            )
+                        else:
+                            # Use percentage of original data
+                            percentage = model_config.get('row_percentage', 25) / 100
+                            num_rows_to_generate = max(1, int(original_size * percentage))
+                    
+                    # Display info about generation size
+                    st.info(f"Generating {num_rows_to_generate} rows of synthetic data ({(num_rows_to_generate/original_size*100):.1f}% of original size)")
+                    
                     if model_config[
                             'model_type'] == 'CGAN' and 'condition_values' in model_config and model_config[
                                 'condition_values']:
@@ -533,7 +555,7 @@ def main():
                         encoder = transformer.encoders.get(
                             model_config['condition_column'])
 
-                        total_samples = len(df)
+                        total_samples = num_rows_to_generate  # Use the calculated number of rows
                         synthetic_data_list = []
 
                         for value in condition_values:
@@ -623,8 +645,9 @@ def main():
                                         new_condition_map[i] = condition_map[old_idx]
                                 condition_map = new_condition_map
                     else:
+                        # Use the calculated number of rows to generate for non-CGAN models
                         synthetic_data = gan.generate_samples(
-                            len(df)).cpu().numpy()
+                            num_rows_to_generate).cpu().numpy()
 
                 # Inverse transform
                 result_df = pd.DataFrame()
@@ -728,11 +751,22 @@ def main():
                 # Display results with progress tracking
                 with st.spinner("Processing evaluation results..."):
                     # Filter DataFrames to only include selected columns
-                    eval_real_df = df[selected_columns].copy()
+                    full_real_df = df[selected_columns].copy()
                     eval_synthetic_df = result_df[selected_columns].copy()
-
-                    st.write("Real data shape:", eval_real_df.shape)
+                    
+                    # Sample the real data to match the synthetic data size for fair comparison
+                    synthetic_size = len(eval_synthetic_df)
+                    if synthetic_size < len(full_real_df):
+                        # Sample without replacement if we have enough real data
+                        eval_real_df = full_real_df.sample(n=synthetic_size, random_state=42)
+                        st.info(f"Using a sample of {synthetic_size} rows from the real dataset for fair comparison")
+                    else:
+                        # Use all real data if synthetic data is larger
+                        eval_real_df = full_real_df.copy()
+                    
+                    st.write("Real data shape (for comparison):", eval_real_df.shape)
                     st.write("Synthetic data shape:", eval_synthetic_df.shape)
+                    st.write("Original real data shape:", full_real_df.shape)
 
                     evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
@@ -840,6 +874,43 @@ def model_config_section():
         "Select Model Type",
         options=['TableGAN', 'WGAN', 'CGAN', 'TVAE', 'CTGAN'],  # Added CTGAN
         help="Choose the type of model to use for synthetic data generation")
+        
+    # Add option to specify number of rows to generate
+    st.subheader("Data Generation Settings")
+    
+    model_config['use_default_row_count'] = st.checkbox(
+        "Use default row count (25% of original data)",
+        value=True,
+        help="When checked, generates synthetic data with 25% of the original dataset size"
+    )
+    
+    if not model_config['use_default_row_count']:
+        model_config['row_percentage'] = st.slider(
+            "Percentage of original data size to generate",
+            min_value=5,
+            max_value=100,
+            value=25,
+            step=5,
+            help="Percentage of the original dataset size to generate as synthetic data"
+        )
+        
+        st.info("You can also specify an exact number of rows to generate below")
+        
+        model_config['use_exact_row_count'] = st.checkbox(
+            "Use exact row count instead of percentage",
+            value=False,
+            help="When checked, allows you to specify the exact number of rows to generate"
+        )
+        
+        if model_config['use_exact_row_count']:
+            model_config['exact_row_count'] = st.number_input(
+                "Number of rows to generate",
+                min_value=1,
+                max_value=10000,  # We'll cap this with the actual data size later
+                value=100,
+                step=10,
+                help="The exact number of synthetic data rows to generate"
+            )
 
     # Add CTGAN-specific parameters
     if model_config['model_type'] == 'CTGAN':
