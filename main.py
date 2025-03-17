@@ -736,15 +736,77 @@ def main():
 
                     evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
+                    # Run comprehensive evaluation
+                    all_metrics = evaluator.evaluate_all(target_column=target_col, task_type=task_type)
+                    
                     # ML utility evaluation
                     with st.expander("ML Utility Evaluation (TSTR)"):
-                        ml_metrics = evaluator.evaluate_ml_utility(
-                            target_column=target_col, task_type=task_type)
-                        st.write(
-                            "Train-Synthetic-Test-Real (TSTR) Evaluation:")
-                        for metric, value in ml_metrics.items():
-                            st.write(f"{metric}: {value:.4f}")
-
+                        if 'ml_utility' in all_metrics and isinstance(all_metrics['ml_utility'], dict):
+                            ml_metrics = all_metrics['ml_utility']
+                            st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
+                            for metric, value in ml_metrics.items():
+                                if isinstance(value, (int, float)):
+                                    st.write(f"{metric}: {value:.4f}")
+                                else:
+                                    st.write(f"{metric}: {value}")
+                        else:
+                            st.write("ML utility metrics not available.")
+                    
+                    # Advanced Evaluation Metrics
+                    with st.expander("Advanced Evaluation Metrics"):
+                        # Create 3 columns for better organization
+                        col1, col2, col3 = st.columns(3)
+                        
+                        # Column 1: Correlation and Similarity Metrics
+                        with col1:
+                            st.subheader("Correlation Metrics")
+                            
+                            # Correlation similarity
+                            corr_sim = all_metrics.get('correlation_similarity', 0)
+                            if isinstance(corr_sim, (int, float)):
+                                st.metric("Correlation Similarity", f"{corr_sim:.4f}")
+                            
+                            # Correlation distance metrics
+                            corr_rmse = all_metrics.get('correlation_distance_rmse', 0)
+                            corr_mae = all_metrics.get('correlation_distance_mae', 0)
+                            if isinstance(corr_rmse, (int, float)) and isinstance(corr_mae, (int, float)):
+                                st.metric("Column Correlation RMSE", f"{corr_rmse:.4f}")
+                                st.metric("Column Correlation MAE", f"{corr_mae:.4f}")
+                                
+                            # Overall similarity score
+                            similarity_score = all_metrics.get('similarity_score', 0)
+                            if isinstance(similarity_score, (int, float)):
+                                st.metric("Overall Similarity Score", f"{similarity_score:.4f}", 
+                                         delta=None, delta_color="normal")
+                        
+                        # Column 2: PCA and Distribution Metrics
+                        with col2:
+                            st.subheader("Distribution Metrics")
+                            
+                            # PCA similarity
+                            pca_sim = all_metrics.get('pca_similarity', 0)
+                            if isinstance(pca_sim, (int, float)):
+                                st.metric("1-MAPE PCA Components", f"{pca_sim:.4f}")
+                            
+                            # Duplicate rows
+                            dup_count = all_metrics.get('duplicate_rows_count', 0)
+                            dup_pct = all_metrics.get('duplicate_rows_percentage', 0)
+                            if isinstance(dup_count, (int, float)) and isinstance(dup_pct, (int, float)):
+                                st.metric("Duplicate Rows Count", f"{dup_count}")
+                                st.metric("Duplicate Rows %", f"{dup_pct:.2f}%")
+                        
+                        # Column 3: Nearest Neighbor Metrics
+                        with col3:
+                            st.subheader("Privacy Metrics")
+                            
+                            # Nearest neighbor stats
+                            nn_mean = all_metrics.get('nearest_neighbor_mean', 0)
+                            nn_std = all_metrics.get('nearest_neighbor_std', 0)
+                            if isinstance(nn_mean, (int, float)) and isinstance(nn_std, (int, float)):
+                                st.metric("Nearest Neighbor Mean", f"{nn_mean:.4f}")
+                                st.metric("Nearest Neighbor Std", f"{nn_std:.4f}")
+                                st.info("Lower nearest neighbor distance may indicate potential privacy concerns.")
+                    
                     # Display evaluation results in chunks
                     st.subheader("Data Distribution Analysis")
                     with st.spinner("Generating distribution plots..."):
