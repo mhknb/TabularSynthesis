@@ -544,8 +544,11 @@ class DataEvaluator:
 
         return fig_list if fig_list else None
 
-    def generate_evaluation_plots(self):
-        """Generate evaluation plots with enhanced error handling"""
+    def generate_evaluation_plots(self, save_path=None):
+        """Generate evaluation plots with enhanced error handling
+        
+        Args:
+            save_path: Optional path to save the plots as files. If None, plots are only returned."""
         try:
             print("\nGenerating evaluation plots...")
             figures = []
@@ -557,7 +560,8 @@ class DataEvaluator:
             n_cols = len(categorical_cols)
             if n_cols == 0:
                 print("No categorical columns found")
-                return None
+                # Continue with numerical plots instead of returning None
+                figures = []
 
             print(f"Processing {n_cols} categorical columns")
 

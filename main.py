@@ -526,26 +526,30 @@ def main():
 
                     # Determine number of samples to generate
                     original_size = len(df)
-                    
+
                     # Calculate number of rows to generate based on user settings
                     if model_config.get('use_default_row_count', True):
                         # Default: 25% of original data
-                        num_rows_to_generate = max(1, int(original_size * 0.25))
+                        num_rows_to_generate = max(1,
+                                                   int(original_size * 0.25))
                     else:
                         if model_config.get('use_exact_row_count', False):
                             # Use exact count specified by user, but cap at original size
                             num_rows_to_generate = min(
-                                model_config.get('exact_row_count', 100), 
-                                original_size
-                            )
+                                model_config.get('exact_row_count', 100),
+                                original_size)
                         else:
                             # Use percentage of original data
-                            percentage = model_config.get('row_percentage', 25) / 100
-                            num_rows_to_generate = max(1, int(original_size * percentage))
-                    
+                            percentage = model_config.get(
+                                'row_percentage', 25) / 100
+                            num_rows_to_generate = max(
+                                1, int(original_size * percentage))
+
                     # Display info about generation size
-                    st.info(f"Generating {num_rows_to_generate} rows of synthetic data ({(num_rows_to_generate/original_size*100):.1f}% of original size)")
-                    
+                    st.info(
+                        f"Generating {num_rows_to_generate} rows of synthetic data ({(num_rows_to_generate/original_size*100):.1f}% of original size)"
+                    )
+
                     if model_config[
                             'model_type'] == 'CGAN' and 'condition_values' in model_config and model_config[
                                 'condition_values']:
@@ -578,71 +582,80 @@ def main():
 
                             # Find the correct index for the condition column
                             condition_idx = -1  # Default to last column
-                            
+
                             # If we have transformed_columns available, find the index of the condition column
-                            if model_config['condition_column'] in transformed_data.columns:
-                                condition_idx = list(transformed_data.columns).index(model_config['condition_column'])
-                            
+                            if model_config[
+                                    'condition_column'] in transformed_data.columns:
+                                condition_idx = list(
+                                    transformed_data.columns).index(
+                                        model_config['condition_column'])
+
                             # Ensure the condition column has the correct encoded value
                             value_samples[:, condition_idx] = encoded_value
-                            
+
                             # Store the generated samples along with their expected condition value
                             # for verification during inverse transform
-                            synthetic_data_list.append((value_samples, value, condition_idx))
+                            synthetic_data_list.append(
+                                (value_samples, value, condition_idx))
 
                         # Combine all generated samples, handling the new structure
                         all_samples = []
                         condition_values_map = {}
-                        
+
                         # Extract samples and build the condition mapping
                         for samples, value, idx in synthetic_data_list:
                             all_samples.append(samples)
                             # For each row in these samples, remember its condition value
                             for i in range(samples.shape[0]):
                                 # Add to map: sample_index -> (condition_value, column_index)
-                                condition_values_map[len(all_samples) - 1, i] = (value, idx)
-                        
+                                condition_values_map[len(all_samples) - 1,
+                                                     i] = (value, idx)
+
                         # Combine the samples
                         synthetic_data = np.vstack(all_samples)
-                        
+
                         # Create a map to preserve condition values
                         condition_map = {}
                         for batch_idx, samples in enumerate(all_samples):
                             for sample_idx in range(samples.shape[0]):
                                 # Store the original condition value for this sample
-                                if (batch_idx, sample_idx) in condition_values_map:
-                                    value, col_idx = condition_values_map[(batch_idx, sample_idx)]
-                                    condition_map[batch_idx * samples.shape[0] + sample_idx] = (value, col_idx)
-                        
+                                if (batch_idx,
+                                        sample_idx) in condition_values_map:
+                                    value, col_idx = condition_values_map[(
+                                        batch_idx, sample_idx)]
+                                    condition_map[batch_idx * samples.shape[0]
+                                                  + sample_idx] = (value,
+                                                                   col_idx)
+
                         # If we didn't generate exactly the requested number of samples, adjust
                         if len(synthetic_data) != total_samples:
                             # Create a smaller set of samples if we generated too many
                             if len(synthetic_data) > total_samples:
-                                indices = np.random.choice(
-                                    len(synthetic_data),
-                                    total_samples,
-                                    replace=False)
+                                indices = np.random.choice(len(synthetic_data),
+                                                           total_samples,
+                                                           replace=False)
                                 synthetic_data = synthetic_data[indices]
-                                
+
                                 # Update condition map for the new indices
                                 new_condition_map = {}
                                 for i, old_idx in enumerate(indices):
                                     if old_idx in condition_map:
-                                        new_condition_map[i] = condition_map[old_idx]
+                                        new_condition_map[i] = condition_map[
+                                            old_idx]
                                 condition_map = new_condition_map
                             # Or repeat samples if we didn't generate enough
                             else:
-                                indices = np.random.choice(
-                                    len(synthetic_data),
-                                    total_samples,
-                                    replace=True)
+                                indices = np.random.choice(len(synthetic_data),
+                                                           total_samples,
+                                                           replace=True)
                                 synthetic_data = synthetic_data[indices]
-                                
+
                                 # Update condition map for the repeated indices
                                 new_condition_map = {}
                                 for i, old_idx in enumerate(indices):
                                     if old_idx in condition_map:
-                                        new_condition_map[i] = condition_map[old_idx]
+                                        new_condition_map[i] = condition_map[
+                                            old_idx]
                                 condition_map = new_condition_map
                     else:
                         # Use the calculated number of rows to generate for non-CGAN models
@@ -653,14 +666,16 @@ def main():
                 result_df = pd.DataFrame()
                 col_idx = 0
                 transformed_columns = []
-                
+
                 # Keep track of the condition column index for CGAN if used
                 condition_col_idx = -1
-                if model_config['model_type'] == 'CGAN' and 'condition_column' in model_config:
+                if model_config[
+                        'model_type'] == 'CGAN' and 'condition_column' in model_config:
                     # Find the index of the condition column in the selected columns
                     if model_config['condition_column'] in selected_columns:
-                        condition_col_idx = selected_columns.index(model_config['condition_column'])
-                
+                        condition_col_idx = selected_columns.index(
+                            model_config['condition_column'])
+
                 for col in selected_columns:  # Use only selected columns
                     # Skip if column type isn't defined
                     if col not in column_types:
@@ -669,41 +684,57 @@ def main():
                     col_type = column_types[col]
                     try:
                         # Special handling for condition column in CGAN
-                        if model_config['model_type'] == 'CGAN' and col == model_config['condition_column']:
+                        if model_config[
+                                'model_type'] == 'CGAN' and col == model_config[
+                                    'condition_column']:
                             # Create a Series for storing the condition values
-                            condition_series = pd.Series(index=range(len(synthetic_data)), name=col)
-                            
+                            condition_series = pd.Series(index=range(
+                                len(synthetic_data)),
+                                                         name=col)
+
                             # If using single-value mode, set all to that value
-                            if 'condition_values' in model_config and len(model_config['condition_values']) == 1:
-                                condition_series[:] = model_config['condition_values'][0]
+                            if 'condition_values' in model_config and len(
+                                    model_config['condition_values']) == 1:
+                                condition_series[:] = model_config[
+                                    'condition_values'][0]
                             else:
                                 # Fill with values from our condition map where available
                                 for sample_idx in range(len(synthetic_data)):
                                     if sample_idx in condition_map:
-                                        original_value, _ = condition_map[sample_idx]
-                                        condition_series.iloc[sample_idx] = original_value
+                                        original_value, _ = condition_map[
+                                            sample_idx]
+                                        condition_series.iloc[
+                                            sample_idx] = original_value
                                     else:
                                         # If no mapping (could happen after resampling), decode normally
                                         pass
-                                
+
                                 # Fill missing values by inverse transforming
                                 missing_indices = condition_series.isna()
                                 if missing_indices.any():
-                                    condition_series[missing_indices] = transformer.inverse_transform_categorical(
-                                        pd.Series(synthetic_data[missing_indices, col_idx], name=col))
-                            
+                                    condition_series[
+                                        missing_indices] = transformer.inverse_transform_categorical(
+                                            pd.Series(
+                                                synthetic_data[missing_indices,
+                                                               col_idx],
+                                                name=col))
+
                             # Set the result
                             result_df[col] = condition_series
                             transformed_columns.append(col)
                             col_idx += 1
                         elif col_type in ['Continuous', 'Ordinal']:
-                            result_df[col] = transformer.inverse_transform_continuous(
-                                pd.Series(synthetic_data[:, col_idx], name=col))
+                            result_df[
+                                col] = transformer.inverse_transform_continuous(
+                                    pd.Series(synthetic_data[:, col_idx],
+                                              name=col))
                             transformed_columns.append(col)
                             col_idx += 1
                         elif col_type == 'Categorical':
-                            result_df[col] = transformer.inverse_transform_categorical(
-                                pd.Series(synthetic_data[:, col_idx], name=col))
+                            result_df[
+                                col] = transformer.inverse_transform_categorical(
+                                    pd.Series(synthetic_data[:, col_idx],
+                                              name=col))
                             transformed_columns.append(col)
                             col_idx += 1
                         elif col_type == 'Datetime':
@@ -753,31 +784,38 @@ def main():
                     # Filter DataFrames to only include selected columns
                     full_real_df = df[selected_columns].copy()
                     eval_synthetic_df = result_df[selected_columns].copy()
-                    
+
                     # Sample the real data to match the synthetic data size for fair comparison
                     synthetic_size = len(eval_synthetic_df)
                     if synthetic_size < len(full_real_df):
                         # Sample without replacement if we have enough real data
-                        eval_real_df = full_real_df.sample(n=synthetic_size, random_state=42)
-                        st.info(f"Using a sample of {synthetic_size} rows from the real dataset for fair comparison")
+                        eval_real_df = full_real_df.sample(n=synthetic_size,
+                                                           random_state=42)
+                        st.info(
+                            f"Using a sample of {synthetic_size} rows from the real dataset for fair comparison"
+                        )
                     else:
                         # Use all real data if synthetic data is larger
                         eval_real_df = full_real_df.copy()
-                    
-                    st.write("Real data shape (for comparison):", eval_real_df.shape)
+
+                    st.write("Real data shape (for comparison):",
+                             eval_real_df.shape)
                     st.write("Synthetic data shape:", eval_synthetic_df.shape)
                     st.write("Original real data shape:", full_real_df.shape)
 
                     evaluator = DataEvaluator(eval_real_df, eval_synthetic_df)
 
                     # Run comprehensive evaluation
-                    all_metrics = evaluator.evaluate_all(target_column=target_col, task_type=task_type)
-                    
+                    all_metrics = evaluator.evaluate_all(
+                        target_column=target_col, task_type=task_type)
+
                     # ML utility evaluation
                     with st.expander("ML Utility Evaluation (TSTR)"):
-                        if 'ml_utility' in all_metrics and isinstance(all_metrics['ml_utility'], dict):
+                        if 'ml_utility' in all_metrics and isinstance(
+                                all_metrics['ml_utility'], dict):
                             ml_metrics = all_metrics['ml_utility']
-                            st.write("Train-Synthetic-Test-Real (TSTR) Evaluation:")
+                            st.write(
+                                "Train-Synthetic-Test-Real (TSTR) Evaluation:")
                             for metric, value in ml_metrics.items():
                                 if isinstance(value, (int, float)):
                                     st.write(f"{metric}: {value:.4f}")
@@ -785,46 +823,64 @@ def main():
                                     st.write(f"{metric}: {value}")
                         else:
                             st.write("ML utility metrics not available.")
-                    
+
                     # Advanced Evaluation Metrics
                     with st.expander("Advanced Evaluation Metrics"):
                         # Create 2 columns for better organization
                         col1, col2 = st.columns(2)
-                        
+
                         # Column 1: Correlation and Similarity Metrics
                         with col1:
                             st.subheader("Correlation Metrics")
-                            
+
                             # Correlation similarity
-                            corr_sim = all_metrics.get('correlation_similarity', 0)
+                            corr_sim = all_metrics.get(
+                                'correlation_similarity', 0)
                             if isinstance(corr_sim, (int, float)):
-                                st.metric("Correlation Similarity", f"{corr_sim:.4f}")
-                            
+                                st.metric("Correlation Similarity",
+                                          f"{corr_sim:.4f}")
+
                             # Correlation distance metrics
-                            corr_rmse = all_metrics.get('correlation_distance_rmse', 0)
-                            corr_mae = all_metrics.get('correlation_distance_mae', 0)
-                            if isinstance(corr_rmse, (int, float)) and isinstance(corr_mae, (int, float)):
-                                st.metric("Column Correlation RMSE", f"{corr_rmse:.4f}")
-                                st.metric("Column Correlation MAE", f"{corr_mae:.4f}")
-                                
+                            corr_rmse = all_metrics.get(
+                                'correlation_distance_rmse', 0)
+                            corr_mae = all_metrics.get(
+                                'correlation_distance_mae', 0)
+                            if isinstance(corr_rmse,
+                                          (int, float)) and isinstance(
+                                              corr_mae, (int, float)):
+                                st.metric("Column Correlation RMSE",
+                                          f"{corr_rmse:.4f}")
+                                st.metric("Column Correlation MAE",
+                                          f"{corr_mae:.4f}")
+
                             # Overall similarity score
-                            similarity_score = all_metrics.get('similarity_score', 0)
+                            similarity_score = all_metrics.get(
+                                'similarity_score', 0)
                             if isinstance(similarity_score, (int, float)):
-                                st.metric("Overall Similarity Score", f"{similarity_score:.4f}", 
-                                         delta=None, delta_color="normal")
-                        
+                                st.metric("Overall Similarity Score",
+                                          f"{similarity_score:.4f}",
+                                          delta=None,
+                                          delta_color="normal")
+
                         # Column 2: Nearest Neighbor Metrics
                         with col2:
                             st.subheader("Privacy Metrics")
-                            
+
                             # Nearest neighbor stats
-                            nn_mean = all_metrics.get('nearest_neighbor_mean', 0)
+                            nn_mean = all_metrics.get('nearest_neighbor_mean',
+                                                      0)
                             nn_std = all_metrics.get('nearest_neighbor_std', 0)
-                            if isinstance(nn_mean, (int, float)) and isinstance(nn_std, (int, float)):
-                                st.metric("Nearest Neighbor Mean", f"{nn_mean:.4f}")
-                                st.metric("Nearest Neighbor Std", f"{nn_std:.4f}")
-                                st.info("Lower nearest neighbor distance may indicate potential privacy concerns.")
-                    
+                            if isinstance(nn_mean,
+                                          (int, float)) and isinstance(
+                                              nn_std, (int, float)):
+                                st.metric("Nearest Neighbor Mean",
+                                          f"{nn_mean:.4f}")
+                                st.metric("Nearest Neighbor Std",
+                                          f"{nn_std:.4f}")
+                                st.info(
+                                    "Lower nearest neighbor distance may indicate potential privacy concerns."
+                                )
+
                     # Display evaluation results in chunks
                     st.subheader("Data Distribution Analysis")
                     with st.spinner("Generating distribution plots..."):
@@ -874,16 +930,17 @@ def model_config_section():
         "Select Model Type",
         options=['TableGAN', 'WGAN', 'CGAN', 'TVAE', 'CTGAN'],  # Added CTGAN
         help="Choose the type of model to use for synthetic data generation")
-        
+
     # Add option to specify number of rows to generate
     st.subheader("Data Generation Settings")
-    
+
     model_config['use_default_row_count'] = st.checkbox(
         "Use default row count (25% of original data)",
-        value=True,
-        help="When checked, generates synthetic data with 25% of the original dataset size"
+        value=False,
+        help=
+        "When checked, generates synthetic data with 25% of the original dataset size"
     )
-    
+
     if not model_config['use_default_row_count']:
         model_config['row_percentage'] = st.slider(
             "Percentage of original data size to generate",
@@ -891,26 +948,29 @@ def model_config_section():
             max_value=100,
             value=25,
             step=5,
-            help="Percentage of the original dataset size to generate as synthetic data"
+            help=
+            "Percentage of the original dataset size to generate as synthetic data"
         )
-        
-        st.info("You can also specify an exact number of rows to generate below")
-        
+
+        st.info(
+            "You can also specify an exact number of rows to generate below")
+
         model_config['use_exact_row_count'] = st.checkbox(
             "Use exact row count instead of percentage",
             value=False,
-            help="When checked, allows you to specify the exact number of rows to generate"
+            help=
+            "When checked, allows you to specify the exact number of rows to generate"
         )
-        
+
         if model_config['use_exact_row_count']:
             model_config['exact_row_count'] = st.number_input(
                 "Number of rows to generate",
                 min_value=1,
-                max_value=10000,  # We'll cap this with the actual data size later
+                max_value=
+                10000,  # We'll cap this with the actual data size later
                 value=100,
                 step=10,
-                help="The exact number of synthetic data rows to generate"
-            )
+                help="The exact number of synthetic data rows to generate")
 
     # Add CTGAN-specific parameters
     if model_config['model_type'] == 'CTGAN':
