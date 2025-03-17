@@ -15,7 +15,7 @@ class DataTransformer:
         self.data_ranges = {}  # Store original data ranges for validation
         self.missing_flags = {}  # Store information about missing values
 
-    def transform_continuous(self, data: pd.Series, method: str = 'minmax') -> pd.Series:
+    def transform_continuous(self, data: pd.Series, method: str = 'standard') -> pd.Series:
         """Transform continuous data using specified method with missing value handling"""
         if data is None:
             raise ValueError(f"None data provided for column transformation")
