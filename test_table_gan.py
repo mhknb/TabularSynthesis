@@ -1,15 +1,17 @@
 """
 Test script for the improved TableGAN model with relationship-aware components
+and categorical data handling
 """
 import torch
 import pandas as pd
 import numpy as np
 from src.models.table_gan import TableGAN
 import matplotlib.pyplot as plt
+import seaborn as sns
 import time
 import os
 
-print("Testing TableGAN model with relationship-aware components...")
+print("Testing TableGAN model with relationship-aware components and categorical data handling...")
 
 try:
     # Load the continuous data example
@@ -160,7 +162,166 @@ try:
     plt.savefig('table_gan_loss_history.png')
     print("Saved loss history plot to 'table_gan_loss_history.png'")
     
-    print("TableGAN test completed successfully!")
+    print("TableGAN continuous data test completed successfully!")
+    
+    #########################################################################
+    # Now, test with categorical data
+    #########################################################################
+    
+    print("\n\n" + "="*80)
+    print("Testing TableGAN with categorical data...")
+    print("="*80 + "\n")
+    
+    try:
+        # Create a synthetic dataset with both continuous and categorical columns
+        np.random.seed(42)
+        n_samples = 1000
+        
+        # Continuous columns
+        continuous_data = np.random.randn(n_samples, 2) * 5
+        
+        # Categorical columns - 3 categories (0, 1, 2)
+        categorical_col1 = np.random.randint(0, 3, size=(n_samples, 1))
+        categorical_col2 = np.random.randint(0, 2, size=(n_samples, 1))  # Binary category
+        
+        # Combine the data
+        mixed_data = np.hstack([continuous_data, categorical_col1, categorical_col2])
+        
+        # Create DataFrame
+        mixed_df = pd.DataFrame(
+            mixed_data, 
+            columns=['continuous1', 'continuous2', 'categorical3', 'categorical4']
+        )
+        
+        print("Created mixed dataset with 2 continuous and 2 categorical columns:")
+        print(mixed_df.head())
+        
+        # Show data statistics
+        print("\nData statistics:")
+        print(mixed_df.describe())
+        
+        # Show categorical distribution
+        print("\nCategorical distributions:")
+        for col in ['categorical3', 'categorical4']:
+            print(f"{col} value counts:")
+            print(mixed_df[col].value_counts())
+        
+        # Convert to tensor for training
+        mixed_tensor = torch.FloatTensor(mixed_df.values)
+        
+        # Create data loader
+        mixed_loader = torch.utils.data.DataLoader(
+            mixed_tensor, 
+            batch_size=32,
+            shuffle=True,
+            drop_last=False
+        )
+        
+        # Set up TableGAN with categorical columns
+        categorical_columns = [2, 3]  # 0-indexed column positions
+        categorical_dims = {2: 3, 3: 2}  # Number of categories for each column
+        
+        mixed_gan = TableGAN(
+            input_dim=mixed_df.shape[1],
+            hidden_dim=128,
+            device=device,
+            min_batch_size=4,
+            categorical_columns=categorical_columns,
+            categorical_dims=categorical_dims
+        )
+        
+        print(f"Initialized TableGAN with categorical columns: {categorical_columns}")
+        print(f"Number of categories per column: {categorical_dims}")
+        
+        # Train for a few epochs
+        n_epochs = 50
+        print(f"Training for {n_epochs} epochs...")
+        
+        for epoch in range(n_epochs):
+            epoch_losses = []
+            for batch_data in mixed_loader:
+                metrics = mixed_gan.train_step(batch_data)
+                epoch_losses.append(metrics)
+            
+            # Only print every 10 epochs
+            if epoch % 10 == 0 or epoch == n_epochs - 1:
+                avg_gen_loss = np.mean([m['generator_loss'] for m in epoch_losses])
+                avg_disc_loss = np.mean([m['discriminator_loss'] for m in epoch_losses])
+                # Check if entropy loss is available
+                if 'entropy_loss' in epoch_losses[0]:
+                    avg_entropy = np.mean([m.get('entropy_loss', 0) for m in epoch_losses])
+                    print(f"Epoch {epoch+1}/{n_epochs}, Gen: {avg_gen_loss:.4f}, Disc: {avg_disc_loss:.4f}, Entropy: {avg_entropy:.4f}")
+                else:
+                    print(f"Epoch {epoch+1}/{n_epochs}, Gen: {avg_gen_loss:.4f}, Disc: {avg_disc_loss:.4f}")
+        
+        # Generate synthetic samples with various temperatures
+        temperatures = [0.2, 0.5, 0.8, 1.0]
+        fig, axes = plt.subplots(len(temperatures), 2, figsize=(12, 4*len(temperatures)))
+        
+        for i, temp in enumerate(temperatures):
+            print(f"Generating samples with temperature={temp}...")
+            synth_tensor = mixed_gan.generate_samples(num_samples=1000, temperature=temp)
+            synth_array = synth_tensor.cpu().detach().numpy()
+            synth_df = pd.DataFrame(synth_array, columns=mixed_df.columns)
+            
+            # Round categorical columns to nearest integers
+            synth_df['categorical3'] = np.round(synth_df['categorical3']).astype(int)
+            synth_df['categorical4'] = np.round(synth_df['categorical4']).astype(int)
+            
+            # Show value counts
+            cat3_counts = synth_df['categorical3'].value_counts().sort_index()
+            cat4_counts = synth_df['categorical4'].value_counts().sort_index()
+            
+            print(f"Temperature {temp} categorical3 counts: {dict(cat3_counts)}")
+            print(f"Temperature {temp} categorical4 counts: {dict(cat4_counts)}")
+            
+            # Plot categorical distributions
+            cat3_counts.plot.bar(ax=axes[i,0], alpha=0.7)
+            axes[i,0].set_title(f'categorical3 (temp={temp})')
+            axes[i,0].grid(alpha=0.3)
+            
+            cat4_counts.plot.bar(ax=axes[i,1], alpha=0.7)
+            axes[i,1].set_title(f'categorical4 (temp={temp})')
+            axes[i,1].grid(alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig('table_gan_categorical_temperature.png')
+        print("Saved categorical temperature plot to 'table_gan_categorical_temperature.png'")
+        
+        # Plot comparison of continuous columns
+        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        
+        # Real continuous distributions
+        for i, col in enumerate(['continuous1', 'continuous2']):
+            sns.kdeplot(mixed_df[col], ax=axes[i], label='Real', fill=True, alpha=0.3)
+        
+        # Synthetic continuous distributions for different temperatures
+        for temp in temperatures:
+            synth_tensor = mixed_gan.generate_samples(num_samples=1000, temperature=temp)
+            synth_array = synth_tensor.cpu().detach().numpy()
+            synth_df = pd.DataFrame(synth_array, columns=mixed_df.columns)
+            
+            for i, col in enumerate(['continuous1', 'continuous2']):
+                sns.kdeplot(synth_df[col], ax=axes[i], label=f'Temp={temp}', alpha=0.6)
+        
+        axes[0].set_title('continuous1')
+        axes[0].grid(alpha=0.3)
+        axes[0].legend()
+        
+        axes[1].set_title('continuous2')
+        axes[1].grid(alpha=0.3)
+        axes[1].legend()
+        
+        plt.tight_layout()
+        plt.savefig('table_gan_continuous_temperature.png')
+        print("Saved continuous temperature plot to 'table_gan_continuous_temperature.png'")
+        
+        print("CategoryGAN mixed data test completed successfully!")
+        
+    except Exception as e:
+        print(f"Error testing CategoryGAN with mixed data: {e}")
+        import traceback
+        traceback.print_exc()
     
 except Exception as e:
     print(f"Error testing TableGAN: {e}")
