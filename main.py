@@ -5,15 +5,19 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 # Fix for binary incompatibility between numpy and pandas/torch
-# Import packages in a specific order to avoid conflicts
-import numpy as np
-import pandas as pd
 import streamlit as st
-import torch
-import matplotlib.pyplot as plt
 
-# Import wandb after numpy and other core packages
-import wandb  # added for wandb integration
+# Core imports needed immediately
+import numpy as np 
+import pandas as pd
+
+# Lazy load other imports
+@st.cache_resource
+def load_ml_packages():
+    import torch
+    import matplotlib.pyplot as plt
+    import wandb
+    return torch, plt, wandb
 
 # Configure wandb defaults
 os.environ["WANDB_ENTITY"] = "smilai"
@@ -22,11 +26,23 @@ os.environ["WANDB_PROJECT"] = "sd1"
 # Now import the rest of the modules
 from src.data_processing.data_loader import DataLoader
 from src.data_processing.transformers import DataTransformer
-from src.models.table_gan import TableGAN
-from src.models.wgan import WGAN
-from src.models.cgan import CGAN
-from src.models.tvae import TVAE
-from src.models.ctgan import CTGAN  # Added import for CTGAN
+@st.cache_resource
+def load_selected_model(model_type):
+    if model_type == 'TableGAN':
+        from src.models.table_gan import TableGAN
+        return TableGAN
+    elif model_type == 'WGAN':
+        from src.models.wgan import WGAN
+        return WGAN
+    elif model_type == 'CGAN':
+        from src.models.cgan import CGAN
+        return CGAN
+    elif model_type == 'TVAE':
+        from src.models.tvae import TVAE
+        return TVAE
+    elif model_type == 'CTGAN':
+        from src.models.ctgan import CTGAN
+        return CTGAN  # Added import for CTGAN
 from src.utils.validation import validate_data, check_column_types
 from src.utils.evaluation import DataEvaluator
 from src.ui import components
@@ -388,8 +404,13 @@ def main():
                         'cuda' if torch.cuda.is_available() else 'cpu')
 
                     # Initialize selected model
+                    # Load packages when needed
+                    torch, plt, wandb = load_ml_packages()
+                    
+                    # Load selected model
+                    ModelClass = load_selected_model(model_config['model_type'])
                     if model_config['model_type'] == 'WGAN':
-                        gan = WGAN(input_dim=transformed_data.shape[1],
+                        gan = ModelClass(input_dim=transformed_data.shape[1],
                                    hidden_dim=model_config['hidden_dim'],
                                    clip_value=model_config['clip_value'],
                                    n_critic=model_config['n_critic'],
