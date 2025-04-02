@@ -62,6 +62,31 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
         best_loss = float('inf')
         patience = 5
         patience_counter = 0
+
+def save_model(self, model_name: str):
+    """Save model state to Modal volume"""
+    try:
+        model_path = f"/model/{model_name}_latest.pt"
+        torch.save(self.state_dict(), model_path)
+        self.volume.commit()
+        print(f"Model saved successfully to {model_path}")
+        return True
+    except Exception as e:
+        print(f"Error saving model: {str(e)}")
+        return False
+
+def load_model(self, model_name: str):
+    """Load model state from Modal volume"""
+    try:
+        model_path = f"/model/{model_name}_latest.pt"
+        state_dict = torch.load(model_path)
+        self.load_state_dict(state_dict)
+        print(f"Model loaded successfully from {model_path}")
+        return True
+    except Exception as e:
+        print(f"Error loading model: {str(e)}")
+        return False
+
         total_steps = 0
 
         # Training loop
@@ -144,8 +169,8 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int) -
 class ModalGAN:
     """Class for managing Modal GAN operations"""
 
-    def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str = 'TableGAN'):
-        """Train GAN model using Modal"""
+    def train(self, data: pd.DataFrame, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str = 'TableGAN', load_existing: bool = True):
+        """Train GAN model using Modal with option to load existing model"""
         try:
             # Convert data to a list of dictionaries for better serialization
             serializable_data = data.reset_index(drop=True).to_dict('records')
