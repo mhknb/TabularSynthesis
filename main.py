@@ -359,22 +359,47 @@ def main():
                 if use_modal:
                     try:
                         with st.spinner("Training model on Modal cloud..."):
-                            # Train on Modal
+                            # Identify categorical columns for special handling
+                            categorical_indices = []
+                            categorical_dims = {}
+                            
+                            for i, col in enumerate(valid_columns):
+                                if col in column_types and column_types[col] == 'Categorical':
+                                    categorical_indices.append(i)
+                                    # Count unique values in the original column
+                                    unique_values = train_df[col].nunique()
+                                    categorical_dims[i] = unique_values
+                            
+                            # Show categorical information
+                            if categorical_indices:
+                                st.info(f"Identified {len(categorical_indices)} categorical columns for specialized handling")
+                                
+                            # Train on Modal with model persistence
                             losses = modal_gan.train(
                                 transformed_data,
                                 input_dim=transformed_data.shape[1],
                                 hidden_dim=model_config['hidden_dim'],
                                 epochs=model_config['epochs'],
                                 batch_size=model_config['batch_size'],
-                                model_type=model_config[
-                                    'model_type']  # Pass model type for WandB
+                                model_type=model_config['model_type'],
+                                load_existing=model_config.get('load_existing', False),
+                                model_name=model_config.get('model_name', None),
+                                fine_tune=model_config.get('fine_tune', False),
+                                categorical_columns=categorical_indices if categorical_indices else None,
+                                categorical_dims=categorical_dims if categorical_dims else None
                             )
 
-                            # Generate samples using Modal
+                            # Generate samples using Modal with temperature control
                             synthetic_data = modal_gan.generate(
                                 num_samples=len(df),
                                 input_dim=transformed_data.shape[1],
-                                hidden_dim=model_config['hidden_dim'])
+                                hidden_dim=model_config['hidden_dim'],
+                                model_type=model_config['model_type'],
+                                model_name=model_config.get('model_name', None),
+                                temperature=model_config.get('temperature', 0.8),
+                                categorical_columns=categorical_indices if categorical_indices else None,
+                                categorical_dims=categorical_dims if categorical_dims else None
+                            )
                     except Exception as e:
                         st.error(f"Modal training failed: {str(e)}")
                         st.info("Falling back to local training...")
@@ -936,7 +961,61 @@ def model_config_section():
         "Select Model Type",
         options=['TableGAN', 'WGAN', 'CGAN', 'TVAE', 'CTGAN'],  # Added CTGAN
         help="Choose the type of model to use for synthetic data generation")
-
+        
+    # Model persistence options
+    st.subheader("Model Persistence")
+    
+    # Add option for loading existing model for fine-tuning
+    model_config['load_existing'] = st.checkbox(
+        "Load existing model for fine-tuning",
+        value=False,
+        help="When checked, an existing model will be loaded for fine-tuning"
+    )
+    
+    if model_config['load_existing']:
+        # Option to list available models
+        if st.button("List Available Models"):
+            with st.spinner("Retrieving available models..."):
+                try:
+                    available_models = modal_gan.list_available_models()
+                    if available_models:
+                        st.success(f"Found {len(available_models)} saved models")
+                        # Display models in a table
+                        model_df = pd.DataFrame(available_models)
+                        st.dataframe(model_df)
+                    else:
+                        st.info("No saved models found. Train a model first.")
+                except Exception as e:
+                    st.error(f"Failed to list models: {str(e)}")
+    
+        # Input for model name
+        model_config['model_name'] = st.text_input(
+            "Model name to load/save",
+            value=f"{model_config['model_type'].lower()}_model",
+            help="Name of the model to load for fine-tuning or save after training (without file extension)"
+        )
+        
+        # Checkbox for fine-tuning vs just loading
+        model_config['fine_tune'] = st.checkbox(
+            "Fine-tune loaded model",
+            value=True,
+            help="When checked, the loaded model will be fine-tuned; otherwise, it will only be used for generation"
+        )
+    else:
+        # Default model name based on type
+        model_config['model_name'] = f"{model_config['model_type'].lower()}_model"
+        model_config['fine_tune'] = False
+    
+    # Add option for temperature parameter (controls diversity in categorical data)
+    model_config['temperature'] = st.slider(
+        "Temperature for categorical sampling",
+        min_value=0.1,
+        max_value=2.0,
+        value=0.8,
+        step=0.1,
+        help="Higher values produce more diverse categorical outputs but may be less accurate"
+    )
+    
     # Add option to specify number of rows to generate
     st.subheader("Data Generation Settings")
 
