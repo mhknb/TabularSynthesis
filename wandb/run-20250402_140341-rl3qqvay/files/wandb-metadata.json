@@ -1,0 +1,29 @@
+{
+  "os": "Linux-6.2.16-x86_64-with-glibc2.40",
+  "python": "CPython 3.11.10",
+  "startedAt": "2025-04-02T14:03:41.636796Z",
+  "program": "/home/runner/workspace/train_and_save.py",
+  "git": {
+    "remote": "https://github.com/mhknb/TabularSynthesis",
+    "commit": "7089b8d43af63402fa7b01dd889de4abce8d2766"
+  },
+  "email": "smilaipro@gmail.com",
+  "root": "/home/runner/workspace",
+  "host": "bb65656c73dc",
+  "executable": "/home/runner/workspace/.pythonlibs/bin/python",
+  "cpu_count": 4,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "52748734464",
+      "used": "20087246848"
+    }
+  },
+  "memory": {
+    "total": "67436748800"
+  },
+  "cpu": {
+    "count": 4,
+    "countLogical": 8
+  }
+}
