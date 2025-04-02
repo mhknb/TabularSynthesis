@@ -9,14 +9,37 @@ import io
 def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """Create file upload widget and handle uploaded file"""
     st.header("Data Upload")
+    
+    # Add option to use sample data (fixing the permissions issue)
+    use_sample_data = st.checkbox("Use sample data from attached_assets", value=False)
+    
+    if use_sample_data:
+        sample_files = [
+            "attached_assets/sample_dataset.csv",
+            "attached_assets/Continuous Data Example from GAN.ipynb.csv",
+            "attached_assets/Synthetic Data (1).csv"
+        ]
+        selected_file = st.selectbox("Select sample file", sample_files)
+        try:
+            df = pd.read_csv(selected_file)
+            return df, None
+        except Exception as e:
+            return None, f"Error loading sample file: {str(e)}"
+    
+    # Regular file upload
     uploaded_file = st.file_uploader(
         "Choose a file",
         type=['csv', 'xlsx', 'xls', 'parquet'],
-        help="Upload your tabular data file (CSV, Excel, or Parquet format)")
+        help="Upload your tabular data file (CSV, Excel, or Parquet format)",
+        accept_multiple_files=False)  # Ensure single file only
 
     if uploaded_file is not None:
-        from src.data_processing.data_loader import DataLoader
-        return DataLoader.load_data(uploaded_file, uploaded_file.name)
+        try:
+            # Using a try-except block to catch potential errors
+            from src.data_processing.data_loader import DataLoader
+            return DataLoader.load_data(uploaded_file, uploaded_file.name)
+        except Exception as e:
+            return None, f"Error processing file: {str(e)}"
     return None, None
 
 
@@ -77,15 +100,14 @@ def transformation_selector(column_types: dict):
 
 
 def model_config_section():
-    """Create model configuration interface"""
+    """Create model configuration interface with model persistence options"""
     st.header("Model Configuration")
 
     config = {
         'model_type':
         st.selectbox(
             "Select GAN Model",
-            options=['TableGAN', 'WGAN', 'CGAN',
-                     'TVAE'],  # Added TVAE to options
+            options=['TableGAN', 'WGAN', 'CGAN', 'TVAE', 'CTGAN'],  # Added CTGAN
             help="Choose the type of model to use for synthetic data generation"
         ),
         'hidden_dim':
@@ -133,7 +155,142 @@ def model_config_section():
                 "Number of critic updates per generator update (WGAN specific)"
             )
         })
-
+    
+    # Temperature parameter for categorical sampling (applicable for models with categorical support)
+    if config['model_type'] in ['TableGAN', 'CTGAN']:
+        config['temperature'] = st.slider(
+            "Temperature for Categorical Sampling",
+            min_value=0.1,
+            max_value=2.0,
+            value=0.8,
+            step=0.1,
+            help="Controls randomness in categorical sampling. Higher values increase diversity."
+        )
+    
+    # Model persistence options
+    st.subheader("Model Persistence")
+    
+    # Option for loading existing model for fine-tuning
+    config['load_existing'] = st.checkbox(
+        "Load existing model for fine-tuning",
+        value=False,
+        help="When checked, an existing model will be loaded for fine-tuning"
+    )
+    
+    # Extra options if loading existing model
+    if config['load_existing']:
+        # Option to list available models
+        if st.button("List Available Models"):
+            from src.models.modal_gan import ModalGAN
+            modal_gan = ModalGAN()
+            
+            with st.spinner("Retrieving available models..."):
+                try:
+                    available_models = modal_gan.list_available_models()
+                    if available_models:
+                        st.success(f"Found {len(available_models)} saved models")
+                        # Display models in a table
+                        model_df = pd.DataFrame(available_models)
+                        st.dataframe(model_df)
+                    else:
+                        st.info("No saved models found. Train a model first.")
+                except Exception as e:
+                    st.error(f"Failed to list models: {str(e)}")
+        
+        # Input for model name
+        config['model_name'] = st.text_input(
+            "Model name to load/save",
+            value=f"{config['model_type'].lower()}_model",
+            help="Name of the model to load for fine-tuning or save after training (without file extension)"
+        )
+        
+        # Checkbox for fine-tuning vs just loading
+        config['fine_tune'] = st.checkbox(
+            "Fine-tune loaded model",
+            value=True,
+            help="When checked, the loaded model will be fine-tuned; otherwise, it will only be used for generation"
+        )
+    else:
+        # Default model name based on type with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d%H%M")
+        config['model_name'] = f"{config['model_type'].lower()}_model_{timestamp}"
+        config['fine_tune'] = False
+    
+    # Advanced training options
+    with st.expander("Advanced Training Options"):
+        # Loss component weights (for TableGAN and other models supporting weighted losses)
+        if config['model_type'] in ['TableGAN', 'CTGAN']:
+            st.subheader("Loss Component Weights")
+            
+            config['alpha'] = st.slider(
+                "Alpha (Adversarial Loss Weight)", 
+                min_value=0.1, 
+                max_value=5.0, 
+                value=1.0, 
+                step=0.1,
+                help="Weight for the adversarial loss component"
+            )
+            
+            config['beta'] = st.slider(
+                "Beta (Relationship Loss Weight)", 
+                min_value=0.0, 
+                max_value=20.0, 
+                value=10.0, 
+                step=1.0,
+                help="Weight for the relationship preservation loss component"
+            )
+            
+            config['gamma'] = st.slider(
+                "Gamma (Feature Matching Loss Weight)", 
+                min_value=0.0, 
+                max_value=1.0, 
+                value=0.1, 
+                step=0.05,
+                help="Weight for the feature matching loss component"
+            )
+            
+            config['delta'] = st.slider(
+                "Delta (Range Preservation Loss Weight)", 
+                min_value=0.0, 
+                max_value=10.0, 
+                value=1.0, 
+                step=0.5,
+                help="Weight for the range preservation loss component"
+            )
+            
+            config['epsilon'] = st.slider(
+                "Epsilon (Categorical Entropy Loss Weight)", 
+                min_value=0.0, 
+                max_value=5.0, 
+                value=0.5, 
+                step=0.1,
+                help="Weight for the categorical entropy loss component"
+            )
+        
+        # Add optimization options
+        config['use_wandb'] = st.checkbox(
+            "Use Weights & Biases for tracking",
+            value=False,
+            help="Enable logging to Weights & Biases for better experiment tracking"
+        )
+        
+        config['optimize_hyperparams'] = st.checkbox(
+            "Optimize hyperparameters before training",
+            value=False,
+            help="Run Bayesian optimization to find optimal hyperparameters before full training"
+        )
+        
+        if config['optimize_hyperparams']:
+            config['optim_iterations'] = st.slider(
+                "Optimization Iterations",
+                min_value=5,
+                max_value=30,
+                value=10,
+                step=5,
+                help="Number of iterations for Bayesian optimization"
+            )
+    
     return config
 
 
