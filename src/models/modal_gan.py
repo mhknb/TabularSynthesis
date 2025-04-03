@@ -12,44 +12,6 @@ app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
-# Define global Modal functions
-@app.function(volumes={"/model": volume})
-def list_models_remote():
-    import os
-    import time
-    model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
-    model_info = []
-    for model_file in model_files:
-        # Get file size and modification time
-        stats = os.stat(f"/model/{model_file}")
-        size_mb = stats.st_size / (1024 * 1024)
-        mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
-        
-        # Extract model type from filename
-        model_type = "unknown"
-        for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
-            if t in model_file.lower():
-                model_type = t.upper()
-                break
-        
-        model_info.append({
-            "filename": model_file,
-            "model_type": model_type,
-            "size_mb": round(size_mb, 2),
-            "last_modified": mod_time,
-        })
-    
-    return model_info
-
-@app.function(volumes={"/model": volume})
-def delete_model_remote(filename):
-    import os
-    file_path = f"/model/{filename}"
-    if os.path.exists(file_path):
-        os.remove(file_path)
-        return True
-    return False
-
 @app.function(
     gpu="T4",
     volumes={"/model": volume},
@@ -569,7 +531,36 @@ class ModalGAN:
     def list_available_models(self):
         """List all available models saved in the Modal volume"""
         try:
-            return list_models_remote.remote()
+            with app.run():
+                @app.function(volumes={"/model": volume})
+                def list_models():
+                    import os
+                    model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
+                    model_info = []
+                    for model_file in model_files:
+                        # Get file size and modification time
+                        stats = os.stat(f"/model/{model_file}")
+                        size_mb = stats.st_size / (1024 * 1024)
+                        mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
+                        
+                        # Extract model type from filename
+                        model_type = "unknown"
+                        for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
+                            if t in model_file.lower():
+                                model_type = t.upper()
+                                break
+                        
+                        model_info.append({
+                            "filename": model_file,
+                            "model_type": model_type,
+                            "size_mb": round(size_mb, 2),
+                            "last_modified": mod_time,
+                        })
+                    
+                    return model_info
+                
+                return list_models.remote()
+                
         except Exception as e:
             print(f"Failed to list models: {str(e)}")
             # Try to list local models as fallback
@@ -589,12 +580,23 @@ class ModalGAN:
             model_name += ".pt"
             
         try:
-            result = delete_model_remote.remote(model_name)
-            if result:
-                print(f"Successfully deleted model {model_name}")
-            else:
-                print(f"Model {model_name} not found")
-            return result
+            with app.run():
+                @app.function(volumes={"/model": volume})
+                def delete_model_file(filename):
+                    import os
+                    file_path = f"/model/{filename}"
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        volume.commit()
+                        return True
+                    return False
+                
+                result = delete_model_file.remote(model_name)
+                if result:
+                    print(f"Successfully deleted model {model_name}")
+                else:
+                    print(f"Model {model_name} not found")
+                return result
                 
         except Exception as e:
             print(f"Failed to delete model: {str(e)}")

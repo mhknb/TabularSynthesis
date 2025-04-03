@@ -1,0 +1,31 @@
+{
+  "os": "Linux-6.2.16-x86_64-with-glibc2.40",
+  "python": "CPython 3.11.10",
+  "startedAt": "2025-03-16T12:52:22.526929Z",
+  "program": "/home/runner/workspace/test_wandb.py",
+  "codePath": "test_wandb.py",
+  "git": {
+    "remote": "https://github.com/mhknb/TabularSynthesis",
+    "commit": "6f1f85db742cc2f7de46aaf672acda3ee01aba38"
+  },
+  "email": "smilaipro@gmail.com",
+  "root": "/home/runner/workspace",
+  "host": "51795c01cedb",
+  "executable": "/home/runner/workspace/.pythonlibs/bin/python",
+  "codePathLocal": "test_wandb.py",
+  "cpu_count": 4,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "52745297920",
+      "used": "26970013696"
+    }
+  },
+  "memory": {
+    "total": "67436748800"
+  },
+  "cpu": {
+    "count": 4,
+    "countLogical": 8
+  }
+}

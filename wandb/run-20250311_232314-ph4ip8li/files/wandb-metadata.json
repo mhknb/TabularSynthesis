@@ -1,0 +1,31 @@
+{
+  "os": "Linux-6.2.16-x86_64-with-glibc2.40",
+  "python": "CPython 3.11.10",
+  "startedAt": "2025-03-11T23:23:14.445684Z",
+  "program": "/home/runner/workspace/test_wgan.py",
+  "codePath": "test_wgan.py",
+  "git": {
+    "remote": "https://github.com/mhknb/TabularSynthesis",
+    "commit": "9c69feb0a0ad65cff026b10c50bd9a43e6f5b666"
+  },
+  "email": "smilaipro@gmail.com",
+  "root": "/home/runner/workspace",
+  "host": "a03aebbc254d",
+  "executable": "/home/runner/workspace/.pythonlibs/bin/python",
+  "codePathLocal": "test_wgan.py",
+  "cpu_count": 4,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "52745297920",
+      "used": "24469397504"
+    }
+  },
+  "memory": {
+    "total": "67436744704"
+  },
+  "cpu": {
+    "count": 4,
+    "countLogical": 8
+  }
+}

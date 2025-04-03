@@ -274,156 +274,6 @@ def main():
         "Choose 'classification' for categorical targets, 'regression' for continuous targets"
     )
 
-    # Add a new section for quick model training
-    with st.expander("Quick Model Generation", expanded=False):
-        st.markdown("### Create and save a model for quick testing")
-        st.markdown("This will train a small model on your data and save it to the Modal volume for later use.")
-        
-        quick_cols = st.columns(3)
-        with quick_cols[0]:
-            quick_model_type = st.selectbox(
-                "Model Type",
-                options=['TableGAN', 'CTGAN', 'WGAN', 'CGAN', 'TVAE'],
-                index=0,
-                key='quick_model_type'
-            )
-        
-        with quick_cols[1]:
-            quick_epochs = st.slider(
-                "Quick Training Epochs",
-                min_value=5,
-                max_value=50,
-                value=15,
-                step=5,
-                key='quick_epochs'
-            )
-        
-        with quick_cols[2]:
-            quick_hidden_dim = st.slider(
-                "Hidden Dimension",
-                min_value=32,
-                max_value=256,
-                value=128,
-                step=32,
-                key='quick_hidden_dim'
-            )
-        
-        # Timestamp-based model name
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        quick_model_name = st.text_input(
-            "Model Name",
-            value=f"{quick_model_type.lower()}_model_{timestamp}",
-            key='quick_model_name'
-        )
-        
-        if st.button("Train & Save Quick Model"):
-            try:
-                with st.spinner("Preparing data for quick model training..."):
-                    # Split data into train and test sets
-                    train_df, _ = train_test_split(df, test_size=0.2, random_state=42)
-                    st.info(f"Using {len(train_df)} samples for quick model training")
-                    
-                    # Transform data
-                    transformer = DataTransformer()
-                    transformed_data = pd.DataFrame()
-                    
-                    # Only use columns that exist in the dataframe
-                    valid_columns = [col for col in df.columns if col in train_df.columns]
-                    
-                    if not valid_columns:
-                        st.error("No valid columns found for transformation")
-                        return
-                    
-                    st.info(f"Transforming {len(valid_columns)} columns")
-                    
-                    for col in valid_columns:
-                        try:
-                            if col not in column_types:
-                                st.warning(f"No type specified for column '{col}'. Skipping.")
-                                continue
-                            
-                            col_type = column_types[col]
-                            if col_type == 'Continuous':
-                                transformed_col = transformer.transform_continuous(
-                                    train_df[col],
-                                    transformations.get(col, 'standard'))
-                                transformed_data[col] = transformed_col
-                            elif col_type == 'Categorical':
-                                transformed_col = transformer.transform_categorical(
-                                    train_df[col],
-                                    transformations.get(col, 'label'))
-                                transformed_data[col] = transformed_col
-                            elif col_type == 'Ordinal':  # Handle ordinal as continuous
-                                transformed_col = transformer.transform_continuous(
-                                    train_df[col],
-                                    transformations.get(col, 'standard'))
-                                transformed_data[col] = transformed_col
-                            elif col_type == 'Datetime':
-                                dt_features = transformer.transform_datetime(
-                                    train_df[col])
-                                transformed_data = pd.concat(
-                                    [transformed_data, dt_features], axis=1)
-                        except Exception as e:
-                            st.error(f"Error transforming column {col}: {str(e)}")
-                            continue
-                    
-                    # If no columns were selected or all transformations failed, display an error
-                    if transformed_data.empty:
-                        st.error(
-                            "No columns were successfully transformed. Please check your data and configuration."
-                        )
-                        return
-                    
-                    # Identify categorical columns for specialized handling
-                    categorical_indices = []
-                    categorical_dims = {}
-                    
-                    for i, col in enumerate(valid_columns):
-                        if col in column_types and column_types[col] == 'Categorical':
-                            categorical_indices.append(i)
-                            # Count unique values in the original column
-                            unique_values = train_df[col].nunique()
-                            categorical_dims[i] = unique_values
-                    
-                    # Get the modal_gan instance from session state or create a new one
-                    if 'modal_gan' not in st.session_state:
-                        from src.models.modal_gan import ModalGAN
-                        st.session_state.modal_gan = ModalGAN()
-                        
-                    modal_gan = st.session_state.modal_gan
-                    
-                    # Train on Modal with model persistence
-                    with st.spinner(f"Training {quick_model_type} model on Modal cloud (this may take a few minutes)..."):
-                        modal_gan.train(
-                            transformed_data,
-                            input_dim=transformed_data.shape[1],
-                            hidden_dim=quick_hidden_dim,
-                            epochs=quick_epochs,
-                            batch_size=64,  # Small batch size for quick training
-                            model_type=quick_model_type,
-                            model_name=quick_model_name,
-                            categorical_columns=categorical_indices if categorical_indices else None,
-                            categorical_dims=categorical_dims if categorical_dims else None
-                        )
-                    
-                    st.success(f"✅ Model successfully trained and saved as '{quick_model_name}'!")
-                    
-                    # Show available models
-                    with st.spinner("Retrieving list of available models..."):
-                        available_models = modal_gan.list_available_models()
-                        if available_models:
-                            st.success(f"Found {len(available_models)} saved models:")
-                            # Display models in a table
-                            model_df = pd.DataFrame(available_models)
-                            st.dataframe(model_df)
-                        else:
-                            st.warning("No saved models found. Check Modal connection.")
-            
-            except Exception as e:
-                st.error(f"Error during quick model training: {str(e)}")
-                st.exception(e)
-
     if st.button("Generate Synthetic Data"):
         with st.spinner("Preparing data..."):
             try:
@@ -523,13 +373,6 @@ def main():
                             # Show categorical information
                             if categorical_indices:
                                 st.info(f"Identified {len(categorical_indices)} categorical columns for specialized handling")
-                            
-                            # Get the modal_gan instance from session state
-                            if 'modal_gan' not in st.session_state:
-                                from src.models.modal_gan import ModalGAN
-                                st.session_state.modal_gan = ModalGAN()
-                                
-                            modal_gan = st.session_state.modal_gan
                                 
                             # Train on Modal with model persistence
                             losses = modal_gan.train(
@@ -1110,11 +953,6 @@ def main():
 
 
 def model_config_section():
-    # Initialize Modal GAN for model operations
-    from src.models.modal_gan import ModalGAN
-    modal_gan = ModalGAN()
-    st.session_state.modal_gan = modal_gan  # Store in session state for later use
-    
     st.subheader("Model Configuration")
 
     model_config = {}
