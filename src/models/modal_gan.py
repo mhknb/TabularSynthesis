@@ -16,7 +16,8 @@ image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wand
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    secrets=[modal.Secret.from_name("wandb-secret")],
+    # Note: We're not using wandb-secret here to avoid authentication issues
+    # Weights & Biases will use anonymous mode if no API key is provided
     timeout=1800
 )
 def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str,
@@ -541,8 +542,7 @@ class ModalGAN:
                 @app.function(
                     volumes={"/model": volume},
                     image=image,
-                    timeout=60,
-                    secrets=[modal.Secret.from_name("wandb-secret", default=None)]
+                    timeout=60
                 )
                 def list_modal_models():
                     import os
