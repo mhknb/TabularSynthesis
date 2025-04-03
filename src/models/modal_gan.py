@@ -13,6 +13,64 @@ volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
 @app.function(
+    volumes={"/model": volume},
+    image=image,
+    timeout=60
+)
+def list_modal_models_remote():
+    """Remote function to list models in Modal volume"""
+    import os
+    import sys
+    import time
+    print("Inside Modal function, checking /model directory")
+    try:
+        if not os.path.exists("/model"):
+            print("WARNING: /model directory does not exist in Modal")
+            return []
+        
+        model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
+        print(f"Found {len(model_files)} model files in Modal volume")
+        
+        model_info = []
+        for model_file in model_files:
+            # Get file size and modification time
+            stats = os.stat(f"/model/{model_file}")
+            size_mb = stats.st_size / (1024 * 1024)
+            mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
+            
+            # Extract model type from filename
+            model_type = "unknown"
+            for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
+                if t in model_file.lower():
+                    model_type = t.upper()
+                    break
+            
+            model_info.append({
+                "filename": model_file,
+                "model_type": model_type,
+                "size_mb": round(size_mb, 2),
+                "last_modified": mod_time,
+                "location": "modal"
+            })
+        
+        return model_info
+    except Exception as e:
+        print(f"Error listing Modal models: {str(e)}")
+        print(f"System info: {sys.version}")
+        return []
+
+@app.function(volumes={"/model": volume})
+def delete_model_file_remote(filename):
+    """Remote function to delete a model in Modal volume"""
+    import os
+    file_path = f"/model/{filename}"
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        volume.commit()
+        return True
+    return False
+
+@app.function(
     gpu="T4",
     volumes={"/model": volume},
     image=image,
@@ -539,51 +597,7 @@ class ModalGAN:
         try:
             print("Attempting to retrieve models from Modal volume...")
             with app.run():
-                @app.function(
-                    volumes={"/model": volume},
-                    image=image,
-                    timeout=60
-                )
-                def list_modal_models():
-                    import os
-                    import sys
-                    print("Inside Modal function, checking /model directory")
-                    try:
-                        if not os.path.exists("/model"):
-                            print("WARNING: /model directory does not exist in Modal")
-                            return []
-                            
-                        model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
-                        print(f"Found {len(model_files)} model files in Modal volume")
-                        
-                        model_info = []
-                        for model_file in model_files:
-                            # Get file size and modification time
-                            stats = os.stat(f"/model/{model_file}")
-                            size_mb = stats.st_size / (1024 * 1024)
-                            mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
-                            
-                            # Extract model type from filename
-                            model_type = "unknown"
-                            for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
-                                if t in model_file.lower():
-                                    model_type = t.upper()
-                                    break
-                            
-                            model_info.append({
-                                "filename": model_file,
-                                "model_type": model_type,
-                                "size_mb": round(size_mb, 2),
-                                "last_modified": mod_time,
-                                "location": "modal"
-                            })
-                        
-                        return model_info
-                    except Exception as e:
-                        print(f"Error listing Modal models: {str(e)}")
-                        return []
-                
-                modal_models = list_modal_models.remote()
+                modal_models = list_modal_models_remote.remote()
                 if modal_models:
                     print(f"Successfully retrieved {len(modal_models)} models from Modal")
                     all_models.extend(modal_models)
@@ -652,17 +666,7 @@ class ModalGAN:
             
         try:
             with app.run():
-                @app.function(volumes={"/model": volume})
-                def delete_model_file(filename):
-                    import os
-                    file_path = f"/model/{filename}"
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                        volume.commit()
-                        return True
-                    return False
-                
-                result = delete_model_file.remote(model_name)
+                result = delete_model_file_remote.remote(model_name)
                 if result:
                     print(f"Successfully deleted model {model_name}")
                 else:
