@@ -28,6 +28,8 @@ def test_wandb():
         if use_wandb:
             # Initialize wandb with the same project name as our models
             print("Initializing WandB...")
+            # Explicitly login with API key to avoid no-tty issues
+            wandb.login(key=api_key)
             run = wandb.init(project="sd1", name=f"test-run-{int(time.time())}")
             print(f"WandB initialized successfully. Run ID: {run.id}")
 

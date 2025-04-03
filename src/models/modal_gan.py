@@ -105,24 +105,32 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
     
     # Initialize wandb with more detailed config, handling missing API key
     run_name = f"{model_type}_{time.strftime('%Y%m%d_%H%M%S')}"
-    use_wandb = True
+    use_wandb = False  # Default to False until successfully initialized
     
     # Try to initialize wandb, with fallback options if API key isn't available
     try:
-        # Try anonymous mode if API key isn't available
-        wandb.init(project="synthetic_data_generation", name=run_name, anonymous="allow")
-        wandb.config = {
-            "model_type": model_type,
-            "input_dim": input_dim,
-            "hidden_dim": hidden_dim,
-            "epochs": epochs,
-            "batch_size": batch_size,
-            "environment": "modal-cloud",
-            "fine_tuning": fine_tune,
-            "categorical_columns": categorical_columns,
-            "categorical_dims": categorical_dims
-        }
-        print("Successfully initialized WandB in anonymous mode")
+        # Check if API key exists and use it explicitly to avoid no-tty errors
+        api_key = os.environ.get('WANDB_API_KEY')
+        if api_key:
+            print(f"Found WANDB_API_KEY, logging in explicitly...")
+            # Handle non-interactive environment by using the key directly
+            wandb.login(key=api_key)
+            wandb.init(project="synthetic_data_generation", name=run_name)
+            wandb.config = {
+                "model_type": model_type,
+                "input_dim": input_dim,
+                "hidden_dim": hidden_dim,
+                "epochs": epochs,
+                "batch_size": batch_size,
+                "environment": "modal-cloud",
+                "fine_tuning": fine_tune,
+                "categorical_columns": categorical_columns,
+                "categorical_dims": categorical_dims
+            }
+            use_wandb = True
+            print("Successfully initialized WandB with API key")
+        else:
+            print("No WANDB_API_KEY found, running without WandB tracking")
     except Exception as e:
         print(f"WandB initialization error: {str(e)}. Training will proceed without WandB logging.")
         use_wandb = False
