@@ -973,12 +973,6 @@ def model_config_section():
     )
     
     if model_config['load_existing']:
-        # Check local models directory
-        if not os.path.exists('models'):
-            os.makedirs('models')
-        local_models = [f for f in os.listdir('models') if f.endswith('.pt')]
-        st.write("Available local models:", local_models)
-        
         # Option to list available models
         if st.button("List Available Models"):
             with st.spinner("Retrieving available models..."):
