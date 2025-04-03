@@ -24,7 +24,7 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                     categorical_columns=None, categorical_dims=None):
     """
     Train GAN model using Modal remote execution with proper batch handling and WandB logging
-    
+
     Args:
         data: The training data
         input_dim: Input dimension for the model
@@ -41,9 +41,9 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
     # Generate a default model name if none provided
     if model_name is None:
         model_name = f"{model_type.lower()}_model"
-    
+
     model_path = f"/model/{model_name}.pt"
-    
+
     # Initialize wandb with more detailed config
     run_name = f"{model_type}_{time.strftime('%Y%m%d_%H%M%S')}"
     wandb.init(project="synthetic_data_generation", name=run_name)
@@ -61,7 +61,7 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
 
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
+
         # Instantiate the appropriate model type
         if model_type == 'TableGAN':
             from src.models.table_gan import TableGAN
@@ -93,14 +93,14 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
             from src.models.table_gan import TableGAN
             gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device, min_batch_size=2)
             model_type = 'TableGAN'  # Reset to ensure consistency
-        
+
         # Load existing model if requested
         if load_existing or fine_tune:
             try:
                 print(f"Loading existing model from {model_path}")
                 gan.load_state_dict(torch.load(model_path))
                 print("Model loaded successfully")
-                
+
                 # Log the loading
                 wandb.log({"model_loaded": True, "model_path": model_path})
             except Exception as load_error:
@@ -122,7 +122,7 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
         elif not isinstance(data, pd.DataFrame):
             print(f"Warning: Unexpected data type: {type(data)}")
             data = pd.DataFrame(data)
-        
+
         # Convert data to tensor and optimize batch size
         train_data = torch.FloatTensor(data.values)
         batch_size = max(gan.min_batch_size, min(batch_size, len(train_data) // 4))
@@ -180,17 +180,18 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                 patience_counter = 0
                 try:
                     # Save model with type-specific name
-                    torch.save(gan.state_dict(), model_path)
-                    print(f"Saved model to {model_path}")
-                    
+                    save_path = f"/model/{model_name}.pt"
+                    torch.save(gan.state_dict(), save_path)
+                    print(f"Saved model to {save_path}")
+
                     # Also save a copy with timestamp for versioning
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
                     versioned_path = f"/model/{model_name}_{timestamp}.pt"
                     torch.save(gan.state_dict(), versioned_path)
                     print(f"Saved versioned model to {versioned_path}")
-                    
+
                     volume.commit()
-                    
+
                     # Log the saving event
                     wandb.log({
                         "model_saved": True,
@@ -231,7 +232,7 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int,
                            categorical_dims=None) -> np.ndarray:
     """
     Generate synthetic samples using Modal remote execution
-    
+
     Args:
         num_samples: Number of samples to generate
         input_dim: Input dimension for the model
@@ -245,11 +246,11 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int,
     # Generate a default model name if none provided
     if model_name is None:
         model_name = f"{model_type.lower()}_model"
-    
+
     model_path = f"/model/{model_name}.pt"
-    
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+
     # Instantiate the appropriate model type with the same logic as in training
     if model_type == 'TableGAN':
         from src.models.table_gan import TableGAN
@@ -285,7 +286,7 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int,
         print(f"Loading model from {model_path}")
         gan.load_state_dict(torch.load(model_path))
         print("Model loaded successfully")
-        
+
         # Generate samples with temperature parameter (for models that support it)
         if hasattr(gan, 'generate_samples') and 'temperature' in gan.generate_samples.__code__.co_varnames:
             print(f"Generating samples with temperature={temperature}")
@@ -293,7 +294,7 @@ def generate_samples_remote(num_samples: int, input_dim: int, hidden_dim: int,
         else:
             print(f"Generating samples (model doesn't support temperature parameter)")
             synthetic_data = gan.generate_samples(num_samples).cpu().detach().numpy()
-            
+
         print(f"Generated {len(synthetic_data)} samples")
         return synthetic_data
     except Exception as e:
@@ -308,7 +309,7 @@ class ModalGAN:
               fine_tune: bool = False, categorical_columns=None, categorical_dims=None):
         """
         Train GAN model using Modal with option to load existing model and fine-tune
-        
+
         Args:
             data: Training data as DataFrame
             input_dim: Input dimension for the model
@@ -325,18 +326,18 @@ class ModalGAN:
         try:
             # Convert data to a list of dictionaries for better serialization
             serializable_data = data.reset_index(drop=True).to_dict('records')
-            
+
             # Generate a default model name if none provided
             if model_name is None:
                 model_name = f"{model_type.lower()}_model"
-            
+
             print(f"Training {model_type} model with Modal {'(fine-tuning)' if fine_tune else ''}")
             print(f"Model will be saved as {model_name}.pt")
-            
+
             if categorical_columns:
                 print(f"Using categorical columns: {categorical_columns}")
                 print(f"Categorical dimensions: {categorical_dims}")
-            
+
             with app.run():
                 # Inside Modal, we'll convert back to DataFrame and pass all parameters
                 return train_gan_remote.remote(
@@ -360,7 +361,7 @@ class ModalGAN:
             else:
                 print(f"Modal training failed: {str(e)}")
                 print("Falling back to local training...")
-            
+
             # Attempt local training as fallback
             try:
                 # Initialize wandb
@@ -377,9 +378,9 @@ class ModalGAN:
                     "categorical_columns": categorical_columns,
                     "categorical_dims": categorical_dims
                 }
-                
+
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                
+
                 # Instantiate the right model with categorical support if needed
                 if model_type == 'TableGAN':
                     from src.models.table_gan import TableGAN
@@ -408,7 +409,7 @@ class ModalGAN:
                     # Default to TableGAN for unsupported model types
                     from src.models.table_gan import TableGAN
                     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
-                
+
                 # Create data loader
                 train_data = torch.FloatTensor(data.values)
                 batch_size = max(2, min(batch_size, len(train_data) // 4))
@@ -419,20 +420,20 @@ class ModalGAN:
                     drop_last=True,
                     num_workers=0  # Use 0 for local training to avoid potential issues
                 )
-                
+
                 # Training
                 losses = gan.train(train_loader, epochs)
-                
+
                 # Save locally as fallback
                 import os
                 os.makedirs('models', exist_ok=True)
                 local_path = f"models/{model_name}.pt"
                 torch.save(gan.state_dict(), local_path)
                 print(f"Model saved locally to {local_path}")
-                
+
                 wandb.finish()
                 return losses[-1] if losses else None
-                
+
             except Exception as inner_e:
                 raise RuntimeError(f"Both remote and local training failed: {str(e)} -> {str(inner_e)}")
 
@@ -441,7 +442,7 @@ class ModalGAN:
                 categorical_dims=None) -> np.ndarray:
         """
         Generate synthetic samples using Modal with specific model and parameters
-        
+
         Args:
             num_samples: Number of samples to generate
             input_dim: Input dimension for the model
@@ -455,11 +456,11 @@ class ModalGAN:
         # Generate a default model name if none provided
         if model_name is None:
             model_name = f"{model_type.lower()}_model"
-            
+
         print(f"Generating {num_samples} samples using {model_type} model ({model_name})")
         if categorical_columns:
             print(f"Using temperature={temperature} for categorical sampling")
-            
+
         try:
             with app.run():
                 # Get result with extended parameters
@@ -483,7 +484,7 @@ class ModalGAN:
             print("Falling back to local generation...")
             try:
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-                
+
                 # Instantiate the right model with the same logic as in training
                 if model_type == 'TableGAN':
                     from src.models.table_gan import TableGAN
@@ -512,22 +513,22 @@ class ModalGAN:
                     # Default to TableGAN if unsupported model type
                     from src.models.table_gan import TableGAN
                     gan = TableGAN(input_dim=input_dim, hidden_dim=hidden_dim, device=device)
-                
+
                 # Try to load local model
                 local_path = f"models/{model_name}.pt"
                 if os.path.exists(local_path):
                     print(f"Loading local model from {local_path}")
                     gan.load_state_dict(torch.load(local_path))
-                    
+
                 # Generate samples with temperature parameter if supported
                 if hasattr(gan, 'generate_samples') and 'temperature' in gan.generate_samples.__code__.co_varnames:
                     return gan.generate_samples(num_samples, temperature=temperature).cpu().detach().numpy()
                 else:
                     return gan.generate_samples(num_samples).cpu().detach().numpy()
-                    
+
             except Exception as inner_e:
                 raise RuntimeError(f"Both remote and local generation failed: {str(e)} -> {str(inner_e)}")
-    
+
     def list_available_models(self):
         """List all available models saved in the Modal volume"""
         try:
@@ -542,25 +543,25 @@ class ModalGAN:
                         stats = os.stat(f"/model/{model_file}")
                         size_mb = stats.st_size / (1024 * 1024)
                         mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
-                        
+
                         # Extract model type from filename
                         model_type = "unknown"
                         for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
                             if t in model_file.lower():
                                 model_type = t.upper()
                                 break
-                        
+
                         model_info.append({
                             "filename": model_file,
                             "model_type": model_type,
                             "size_mb": round(size_mb, 2),
                             "last_modified": mod_time,
                         })
-                    
+
                     return model_info
-                
+
                 return list_models.remote()
-                
+
         except Exception as e:
             print(f"Failed to list models: {str(e)}")
             # Try to list local models as fallback
@@ -573,12 +574,12 @@ class ModalGAN:
                     return []
             except:
                 return []
-    
+
     def delete_model(self, model_name: str):
         """Delete a model from the Modal volume"""
         if not model_name.endswith(".pt"):
             model_name += ".pt"
-            
+
         try:
             with app.run():
                 @app.function(volumes={"/model": volume})
@@ -590,14 +591,14 @@ class ModalGAN:
                         volume.commit()
                         return True
                     return False
-                
+
                 result = delete_model_file.remote(model_name)
                 if result:
                     print(f"Successfully deleted model {model_name}")
                 else:
                     print(f"Model {model_name} not found")
                 return result
-                
+
         except Exception as e:
             print(f"Failed to delete model: {str(e)}")
             return False
