@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+import modal
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -973,20 +974,76 @@ def model_config_section():
     )
     
     if model_config['load_existing']:
+        # Add a dedicated section for model management
+        st.subheader("Model Management")
+        
         # Option to list available models
-        if st.button("List Available Models"):
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            list_models_button = st.button("List Available Models")
+        with col2:
+            force_local_only = st.checkbox("List local models only", 
+                              value=False, 
+                              help="Check this if Modal cloud connection is not working")
+        
+        if list_models_button:
             with st.spinner("Retrieving available models..."):
                 try:
+                    # Create an expander for debug information
+                    with st.expander("Model Listing Debug Info"):
+                        # Add a placeholder for debug messages
+                        debug_placeholder = st.empty()
+                    
+                    # Redirect print statements to the debug placeholder
+                    import io
+                    import sys
+                    old_stdout = sys.stdout
+                    new_stdout = io.StringIO()
+                    sys.stdout = new_stdout
+                    
+                    # Call the list_available_models function
+                    if force_local_only:
+                        # Force local-only mode by triggering an exception in Modal code
+                        try:
+                            with modal.app.run():
+                                raise Exception("Forcing local-only model listing")
+                        except:
+                            pass
+                        
                     available_models = modal_gan.list_available_models()
+                    
+                    # Restore stdout and update debug info
+                    sys.stdout = old_stdout
+                    debug_placeholder.code(new_stdout.getvalue())
+                    
                     if available_models:
                         st.success(f"Found {len(available_models)} saved models")
-                        # Display models in a table
+                        # Display models in a table with improved formatting
                         model_df = pd.DataFrame(available_models)
-                        st.dataframe(model_df)
+                        
+                        # Reorder columns for better display
+                        display_cols = ['filename', 'model_type', 'location', 'size_mb', 'last_modified']
+                        display_cols = [col for col in display_cols if col in model_df.columns]
+                        model_df = model_df[display_cols]
+                        
+                        # Format size to 2 decimal places
+                        if 'size_mb' in model_df.columns:
+                            model_df['size_mb'] = model_df['size_mb'].round(2).astype(str) + ' MB'
+                        
+                        st.dataframe(model_df, use_container_width=True)
                     else:
                         st.info("No saved models found. Train a model first.")
+                        st.markdown("""
+                        **Possible reasons:**
+                        1. You haven't trained any models yet
+                        2. Modal cloud storage connection issue
+                        3. Local storage not properly initialized
+                        """)
                 except Exception as e:
+                    import traceback
                     st.error(f"Failed to list models: {str(e)}")
+                    with st.expander("Error Details"):
+                        st.code(traceback.format_exc())
     
         # Input for model name
         model_config['model_name'] = st.text_input(

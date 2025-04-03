@@ -529,50 +529,121 @@ class ModalGAN:
                 raise RuntimeError(f"Both remote and local generation failed: {str(e)} -> {str(inner_e)}")
     
     def list_available_models(self):
-        """List all available models saved in the Modal volume"""
+        """List all available models saved in the Modal volume with enhanced error handling"""
+        all_models = []
+        modal_models_found = False
+        local_models_found = False
+        
+        # First try to get models from Modal
         try:
+            print("Attempting to retrieve models from Modal volume...")
             with app.run():
-                @app.function(volumes={"/model": volume})
-                def list_models():
+                @app.function(
+                    volumes={"/model": volume},
+                    image=image,
+                    timeout=60,
+                    secrets=[modal.Secret.from_name("wandb-secret", default=None)]
+                )
+                def list_modal_models():
                     import os
-                    model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
-                    model_info = []
-                    for model_file in model_files:
-                        # Get file size and modification time
-                        stats = os.stat(f"/model/{model_file}")
-                        size_mb = stats.st_size / (1024 * 1024)
-                        mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
+                    import sys
+                    print("Inside Modal function, checking /model directory")
+                    try:
+                        if not os.path.exists("/model"):
+                            print("WARNING: /model directory does not exist in Modal")
+                            return []
+                            
+                        model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
+                        print(f"Found {len(model_files)} model files in Modal volume")
                         
-                        # Extract model type from filename
-                        model_type = "unknown"
-                        for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
-                            if t in model_file.lower():
-                                model_type = t.upper()
-                                break
+                        model_info = []
+                        for model_file in model_files:
+                            # Get file size and modification time
+                            stats = os.stat(f"/model/{model_file}")
+                            size_mb = stats.st_size / (1024 * 1024)
+                            mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
+                            
+                            # Extract model type from filename
+                            model_type = "unknown"
+                            for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
+                                if t in model_file.lower():
+                                    model_type = t.upper()
+                                    break
+                            
+                            model_info.append({
+                                "filename": model_file,
+                                "model_type": model_type,
+                                "size_mb": round(size_mb, 2),
+                                "last_modified": mod_time,
+                                "location": "modal"
+                            })
                         
-                        model_info.append({
-                            "filename": model_file,
-                            "model_type": model_type,
-                            "size_mb": round(size_mb, 2),
-                            "last_modified": mod_time,
-                        })
-                    
-                    return model_info
+                        return model_info
+                    except Exception as e:
+                        print(f"Error listing Modal models: {str(e)}")
+                        return []
                 
-                return list_models.remote()
+                modal_models = list_modal_models.remote()
+                if modal_models:
+                    print(f"Successfully retrieved {len(modal_models)} models from Modal")
+                    all_models.extend(modal_models)
+                    modal_models_found = True
+                else:
+                    print("No models found in Modal volume")
                 
         except Exception as e:
-            print(f"Failed to list models: {str(e)}")
-            # Try to list local models as fallback
-            try:
-                import os
-                if os.path.exists("models"):
-                    model_files = [f for f in os.listdir("models") if f.endswith(".pt")]
-                    return [{"filename": f, "location": "local"} for f in model_files]
-                else:
-                    return []
-            except:
-                return []
+            print(f"Failed to connect to Modal: {str(e)}")
+        
+        # Then try to get local models as well (not just as fallback)
+        try:
+            print("Checking for local models...")
+            import os
+            if not os.path.exists("models"):
+                os.makedirs("models", exist_ok=True)
+                print("Created local 'models' directory")
+            
+            model_files = [f for f in os.listdir("models") if f.endswith(".pt")]
+            if model_files:
+                print(f"Found {len(model_files)} local model files")
+                local_models = []
+                
+                for model_file in model_files:
+                    # Get file size and modification time
+                    stats = os.stat(f"models/{model_file}")
+                    size_mb = stats.st_size / (1024 * 1024)
+                    mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
+                    
+                    # Extract model type from filename
+                    model_type = "unknown"
+                    for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
+                        if t in model_file.lower():
+                            model_type = t.upper()
+                            break
+                    
+                    local_models.append({
+                        "filename": model_file,
+                        "model_type": model_type,
+                        "size_mb": round(size_mb, 2),
+                        "last_modified": mod_time,
+                        "location": "local"
+                    })
+                
+                all_models.extend(local_models)
+                local_models_found = True
+            else:
+                print("No local models found")
+        except Exception as e:
+            print(f"Error listing local models: {str(e)}")
+        
+        # Return combined results with status information
+        if not all_models:
+            print("No models found in either Modal or locally")
+            # Return empty list with diagnostic info
+            return []
+        
+        # Sort models by last_modified date (most recent first)
+        all_models.sort(key=lambda x: x.get("last_modified", ""), reverse=True)
+        return all_models
     
     def delete_model(self, model_name: str):
         """Delete a model from the Modal volume"""
