@@ -1,0 +1,31 @@
+{
+  "os": "Linux-6.2.16-x86_64-with-glibc2.40",
+  "python": "CPython 3.11.10",
+  "startedAt": "2025-04-03T10:48:59.593048Z",
+  "program": "/home/runner/workspace/main.py",
+  "codePath": "main.py",
+  "git": {
+    "remote": "https://github.com/mhknb/TabularSynthesis",
+    "commit": "a1d49665cfef7be0c68fe758abb5a6aebd214217"
+  },
+  "email": "smilaipro@gmail.com",
+  "root": "/home/runner/workspace",
+  "host": "e5798d340b51",
+  "executable": "/nix/store/wqhkxzzlaswkj3gimqign99sshvllcg6-python-wrapped-0.1.0/bin/python3",
+  "codePathLocal": "main.py",
+  "cpu_count": 4,
+  "cpu_count_logical": 8,
+  "disk": {
+    "/": {
+      "total": "52748734464",
+      "used": "21308276736"
+    }
+  },
+  "memory": {
+    "total": "67436752896"
+  },
+  "cpu": {
+    "count": 4,
+    "countLogical": 8
+  }
+}

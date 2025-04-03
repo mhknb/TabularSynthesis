@@ -103,20 +103,29 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
     
     model_path = f"/model/{model_name}.pt"
     
-    # Initialize wandb with more detailed config
+    # Initialize wandb with more detailed config, handling missing API key
     run_name = f"{model_type}_{time.strftime('%Y%m%d_%H%M%S')}"
-    wandb.init(project="synthetic_data_generation", name=run_name)
-    wandb.config = {
-        "model_type": model_type,
-        "input_dim": input_dim,
-        "hidden_dim": hidden_dim,
-        "epochs": epochs,
-        "batch_size": batch_size,
-        "environment": "modal-cloud",
-        "fine_tuning": fine_tune,
-        "categorical_columns": categorical_columns,
-        "categorical_dims": categorical_dims
-    }
+    use_wandb = True
+    
+    # Try to initialize wandb, with fallback options if API key isn't available
+    try:
+        # Try anonymous mode if API key isn't available
+        wandb.init(project="synthetic_data_generation", name=run_name, anonymous="allow")
+        wandb.config = {
+            "model_type": model_type,
+            "input_dim": input_dim,
+            "hidden_dim": hidden_dim,
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "environment": "modal-cloud",
+            "fine_tuning": fine_tune,
+            "categorical_columns": categorical_columns,
+            "categorical_dims": categorical_dims
+        }
+        print("Successfully initialized WandB in anonymous mode")
+    except Exception as e:
+        print(f"WandB initialization error: {str(e)}. Training will proceed without WandB logging.")
+        use_wandb = False
 
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -160,16 +169,19 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                 gan.load_state_dict(torch.load(model_path))
                 print("Model loaded successfully")
                 
-                # Log the loading
-                wandb.log({"model_loaded": True, "model_path": model_path})
+                # Log the loading if WandB is enabled
+                if use_wandb:
+                    wandb.log({"model_loaded": True, "model_path": model_path})
             except Exception as load_error:
                 print(f"Error loading model: {str(load_error)}")
                 if fine_tune:
                     print("Fine-tuning requested but model couldn't be loaded. Training from scratch.")
-                    wandb.log({"model_loaded": False, "fine_tune_fallback": "train_from_scratch"})
+                    if use_wandb:
+                        wandb.log({"model_loaded": False, "fine_tune_fallback": "train_from_scratch"})
                 else:
                     # Just log the error, but continue with new model
-                    wandb.log({"model_loaded": False, "error": str(load_error)})
+                    if use_wandb:
+                        wandb.log({"model_loaded": False, "error": str(load_error)})
 
         # Convert data from dict format back to DataFrame if needed
         if isinstance(data, list):
@@ -212,7 +224,8 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                     # Log metrics every few batches
                     if batch_idx % 10 == 0:
                         print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                        wandb.log(metrics)
+                        if use_wandb:
+                            wandb.log(metrics)
 
                 except Exception as e:
                     print(f"Error in batch processing: {str(e)}")
@@ -227,11 +240,12 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                          for k in epoch_losses[0].keys()}
             current_loss = sum(avg_losses.values())
 
-            wandb.log({
-                "epoch": epoch,
-                "average_loss": current_loss,
-                **avg_losses
-            })
+            if use_wandb:
+                wandb.log({
+                    "epoch": epoch,
+                    "average_loss": current_loss,
+                    **avg_losses
+                })
 
             # Save best model
             if current_loss < best_loss:
@@ -250,16 +264,18 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                     
                     volume.commit()
                     
-                    # Log the saving event
-                    wandb.log({
-                        "model_saved": True,
-                        "model_path": model_path,
-                        "versioned_path": versioned_path,
-                        "best_loss": best_loss
-                    })
+                    # Log the saving event if WandB is enabled
+                    if use_wandb:
+                        wandb.log({
+                            "model_saved": True,
+                            "model_path": model_path,
+                            "versioned_path": versioned_path,
+                            "best_loss": best_loss
+                        })
                 except Exception as e:
                     print(f"Warning: Failed to save model: {str(e)}")
-                    wandb.log({"model_saved": False, "error": str(e)})
+                    if use_wandb:
+                        wandb.log({"model_saved": False, "error": str(e)})
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
@@ -268,13 +284,15 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
 
     except Exception as e:
         print(f"Training error: {str(e)}")
-        wandb.log({"training_error": str(e)})
-        wandb.finish()
+        if use_wandb:
+            wandb.log({"training_error": str(e)})
+            wandb.finish()
         raise e
 
     finally:
-        # Always ensure wandb run is finished
-        wandb.finish()
+        # Always ensure wandb run is finished if it was initialized
+        if use_wandb:
+            wandb.finish()
 
     return avg_losses if 'avg_losses' in locals() else None
 
@@ -489,7 +507,12 @@ class ModalGAN:
                 torch.save(gan.state_dict(), local_path)
                 print(f"Model saved locally to {local_path}")
                 
-                wandb.finish()
+                # Finish wandb run if it was initialized
+                try:
+                    wandb.finish()
+                except:
+                    pass
+                
                 return losses[-1] if losses else None
                 
             except Exception as inner_e:
