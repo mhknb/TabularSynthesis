@@ -1017,9 +1017,13 @@ def model_config_section():
                     debug_placeholder.code(new_stdout.getvalue())
                     
                     if available_models:
-                        st.success(f"Found {len(available_models)} saved models")
+                        total_models = len(available_models)
+                        # Limit to last 3 models as requested
+                        limited_models = available_models[:3]  # The models are already sorted by date (newest first)
+                        
+                        st.success(f"Found {total_models} saved models (showing most recent 3)")
                         # Display models in a table with improved formatting
-                        model_df = pd.DataFrame(available_models)
+                        model_df = pd.DataFrame(limited_models)
                         
                         # Reorder columns for better display
                         display_cols = ['filename', 'model_type', 'location', 'size_mb', 'last_modified']
@@ -1031,6 +1035,9 @@ def model_config_section():
                             model_df['size_mb'] = model_df['size_mb'].round(2).astype(str) + ' MB'
                         
                         st.dataframe(model_df, use_container_width=True)
+                        
+                        if total_models > 3:
+                            st.info(f"Showing only the 3 most recent models out of {total_models}. For a full list, delete some models to see others.")
                     else:
                         st.info("No saved models found. Train a model first.")
                         st.markdown("""
