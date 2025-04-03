@@ -10,23 +10,45 @@ def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """Create file upload widget and handle uploaded file"""
     st.header("Data Upload")
     
-    # Add option to use sample data (fixing the permissions issue)
-    use_sample_data = st.checkbox("Use sample data from attached_assets", value=False)
+    # Add option to use sample data (preferred method to avoid permissions issues)
+    use_sample_data = st.checkbox("Use sample data from attached_assets", value=True, 
+                                help="Recommended: Use built-in sample data to avoid upload permission issues")
     
     if use_sample_data:
-        sample_files = [
-            "attached_assets/sample_dataset.csv",
-            "attached_assets/Continuous Data Example from GAN.ipynb.csv",
-            "attached_assets/Synthetic Data (1).csv"
-        ]
-        selected_file = st.selectbox("Select sample file", sample_files)
+        # Get actual sample files from directory
+        import os
         try:
-            df = pd.read_csv(selected_file)
+            available_files = [f for f in os.listdir("attached_assets") if f.endswith(('.csv', '.xlsx', '.xls', '.parquet'))]
+            sample_files = [f"attached_assets/{f}" for f in available_files]
+            
+            if not sample_files:
+                st.warning("No sample files found in attached_assets directory. Using default sample.")
+                sample_files = ["attached_assets/sample_dataset.csv"]
+        except Exception as e:
+            st.warning(f"Error accessing sample files: {str(e)}. Using default sample.")
+            sample_files = ["attached_assets/sample_dataset.csv"]
+        
+        selected_file = st.selectbox("Select sample file", sample_files)
+        
+        try:
+            if selected_file.endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(selected_file)
+            elif selected_file.endswith('.csv'):
+                df = pd.read_csv(selected_file)
+            elif selected_file.endswith('.parquet'):
+                import pyarrow.parquet as pq
+                df = pq.read_table(selected_file).to_pandas()
+            else:
+                return None, "Unsupported file format. Please use .csv, .xlsx, or .parquet files."
+            
+            st.success(f"Successfully loaded {selected_file}")
             return df, None
         except Exception as e:
             return None, f"Error loading sample file: {str(e)}"
     
-    # Regular file upload
+    # Regular file upload with enhanced error handling
+    st.info("Note: If you encounter a 403 error during upload, please use the sample data option instead.")
+    
     uploaded_file = st.file_uploader(
         "Choose a file",
         type=['csv', 'xlsx', 'xls', 'parquet'],
@@ -37,9 +59,22 @@ def file_uploader() -> Tuple[Optional[pd.DataFrame], Optional[str]]:
         try:
             # Using a try-except block to catch potential errors
             from src.data_processing.data_loader import DataLoader
-            return DataLoader.load_data(uploaded_file, uploaded_file.name)
+            df, error = DataLoader.load_data(uploaded_file, uploaded_file.name)
+            
+            if error:
+                st.error(f"Upload error: {error}")
+                st.info("We recommend using the sample data option instead to avoid permission issues.")
+                return None, error
+            
+            st.success(f"Successfully loaded {uploaded_file.name}")
+            return df, None
+            
         except Exception as e:
-            return None, f"Error processing file: {str(e)}"
+            error_msg = f"Error processing file: {str(e)}"
+            st.error(error_msg)
+            st.info("We recommend using the sample data option instead to avoid permission issues.")
+            return None, error_msg
+    
     return None, None
 
 
