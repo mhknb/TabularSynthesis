@@ -17,30 +17,21 @@ def test_wandb():
     api_key = os.environ.get('WANDB_API_KEY')
     print(f"WANDB_API_KEY present in environment: {'Yes' if api_key else 'No'}")
 
-    # Set flag to determine if WandB should be used
-    use_wandb = True if api_key else False
-    
     if not api_key:
-        print("WANDB_API_KEY not found in environment variables.")
-        print("Running in anonymous mode with limited functionality.")
+        raise ValueError("WANDB_API_KEY not found in environment variables. Please ensure the Modal secret is properly configured.")
 
     try:
-        if use_wandb:
-            # Initialize wandb with the same project name as our models
-            print("Initializing WandB...")
-            # Explicitly login with API key to avoid no-tty issues
-            wandb.login(key=api_key)
-            run = wandb.init(project="sd1", name=f"test-run-{int(time.time())}")
-            print(f"WandB initialized successfully. Run ID: {run.id}")
+        # Initialize wandb with the same project name as our models
+        print("Initializing WandB...")
+        run = wandb.init(project="sd1", name=f"test-run-{int(time.time())}")
+        print(f"WandB initialized successfully. Run ID: {run.id}")
 
-            # Configure some test parameters
-            wandb.config = {
-                "test_param": "testing modal integration",
-                "environment": "modal-cloud"
-            }
-            print("WandB config set")
-        else:
-            print("Running without WandB integration")
+        # Configure some test parameters
+        wandb.config = {
+            "test_param": "testing modal integration",
+            "environment": "modal-cloud"
+        }
+        print("WandB config set")
 
         # Simulate a training loop
         print("Starting test metrics logging...")
@@ -50,22 +41,19 @@ def test_wandb():
                 'test_accuracy': i / 10.0,
                 'iteration': i
             }
-            
-            if use_wandb:
-                wandb.log(metrics)
-                
-            print(f"Metrics for iteration {i}: {metrics}")
+            wandb.log(metrics)
+            print(f"Logged metrics for iteration {i}: {metrics}")
             time.sleep(1)  # Small delay to see metrics flow
 
         print("Test completed successfully")
     except Exception as e:
-        print(f"Error during test: {str(e)}")
+        print(f"Error during WandB test: {str(e)}")
         import traceback
         print("Full error traceback:")
         print(traceback.format_exc())
         raise e
     finally:
-        if use_wandb and wandb.run is not None:
+        if wandb.run is not None:
             print("Finishing WandB run...")
             wandb.finish()
             print("WandB run finished")

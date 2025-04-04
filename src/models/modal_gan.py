@@ -12,61 +12,41 @@ app = modal.App()
 volume = modal.Volume.from_name("gan-model-vol", create_if_missing=True)
 image = modal.Image.debian_slim().pip_install(["torch", "numpy", "pandas", "wandb"])
 
-@app.function(
-    volumes={"/model": volume},
-    image=image,
-    timeout=60
-)
-def list_modal_models_remote():
-    """Remote function to list models in Modal volume"""
+# Define global Modal functions
+@app.function(volumes={"/model": volume})
+def list_models_remote():
     import os
-    import sys
     import time
-    print("Inside Modal function, checking /model directory")
-    try:
-        if not os.path.exists("/model"):
-            print("WARNING: /model directory does not exist in Modal")
-            return []
+    model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
+    model_info = []
+    for model_file in model_files:
+        # Get file size and modification time
+        stats = os.stat(f"/model/{model_file}")
+        size_mb = stats.st_size / (1024 * 1024)
+        mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
         
-        model_files = [f for f in os.listdir("/model") if f.endswith(".pt")]
-        print(f"Found {len(model_files)} model files in Modal volume")
+        # Extract model type from filename
+        model_type = "unknown"
+        for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
+            if t in model_file.lower():
+                model_type = t.upper()
+                break
         
-        model_info = []
-        for model_file in model_files:
-            # Get file size and modification time
-            stats = os.stat(f"/model/{model_file}")
-            size_mb = stats.st_size / (1024 * 1024)
-            mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
-            
-            # Extract model type from filename
-            model_type = "unknown"
-            for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
-                if t in model_file.lower():
-                    model_type = t.upper()
-                    break
-            
-            model_info.append({
-                "filename": model_file,
-                "model_type": model_type,
-                "size_mb": round(size_mb, 2),
-                "last_modified": mod_time,
-                "location": "modal"
-            })
-        
-        return model_info
-    except Exception as e:
-        print(f"Error listing Modal models: {str(e)}")
-        print(f"System info: {sys.version}")
-        return []
+        model_info.append({
+            "filename": model_file,
+            "model_type": model_type,
+            "size_mb": round(size_mb, 2),
+            "last_modified": mod_time,
+        })
+    
+    return model_info
 
 @app.function(volumes={"/model": volume})
-def delete_model_file_remote(filename):
-    """Remote function to delete a model in Modal volume"""
+def delete_model_remote(filename):
     import os
     file_path = f"/model/{filename}"
     if os.path.exists(file_path):
         os.remove(file_path)
-        volume.commit()
         return True
     return False
 
@@ -74,8 +54,7 @@ def delete_model_file_remote(filename):
     gpu="T4",
     volumes={"/model": volume},
     image=image,
-    # Note: We're not using wandb-secret here to avoid authentication issues
-    # Weights & Biases will use anonymous mode if no API key is provided
+    secrets=[modal.Secret.from_name("wandb-secret")],
     timeout=1800
 )
 def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_size: int, model_type: str,
@@ -103,37 +82,20 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
     
     model_path = f"/model/{model_name}.pt"
     
-    # Initialize wandb with more detailed config, handling missing API key
+    # Initialize wandb with more detailed config
     run_name = f"{model_type}_{time.strftime('%Y%m%d_%H%M%S')}"
-    use_wandb = False  # Default to False until successfully initialized
-    
-    # Try to initialize wandb, with fallback options if API key isn't available
-    try:
-        # Check if API key exists and use it explicitly to avoid no-tty errors
-        api_key = os.environ.get('WANDB_API_KEY')
-        if api_key:
-            print(f"Found WANDB_API_KEY, logging in explicitly...")
-            # Handle non-interactive environment by using the key directly
-            wandb.login(key=api_key)
-            wandb.init(project="synthetic_data_generation", name=run_name)
-            wandb.config = {
-                "model_type": model_type,
-                "input_dim": input_dim,
-                "hidden_dim": hidden_dim,
-                "epochs": epochs,
-                "batch_size": batch_size,
-                "environment": "modal-cloud",
-                "fine_tuning": fine_tune,
-                "categorical_columns": categorical_columns,
-                "categorical_dims": categorical_dims
-            }
-            use_wandb = True
-            print("Successfully initialized WandB with API key")
-        else:
-            print("No WANDB_API_KEY found, running without WandB tracking")
-    except Exception as e:
-        print(f"WandB initialization error: {str(e)}. Training will proceed without WandB logging.")
-        use_wandb = False
+    wandb.init(project="synthetic_data_generation", name=run_name)
+    wandb.config = {
+        "model_type": model_type,
+        "input_dim": input_dim,
+        "hidden_dim": hidden_dim,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "environment": "modal-cloud",
+        "fine_tuning": fine_tune,
+        "categorical_columns": categorical_columns,
+        "categorical_dims": categorical_dims
+    }
 
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -177,19 +139,16 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                 gan.load_state_dict(torch.load(model_path))
                 print("Model loaded successfully")
                 
-                # Log the loading if WandB is enabled
-                if use_wandb:
-                    wandb.log({"model_loaded": True, "model_path": model_path})
+                # Log the loading
+                wandb.log({"model_loaded": True, "model_path": model_path})
             except Exception as load_error:
                 print(f"Error loading model: {str(load_error)}")
                 if fine_tune:
                     print("Fine-tuning requested but model couldn't be loaded. Training from scratch.")
-                    if use_wandb:
-                        wandb.log({"model_loaded": False, "fine_tune_fallback": "train_from_scratch"})
+                    wandb.log({"model_loaded": False, "fine_tune_fallback": "train_from_scratch"})
                 else:
                     # Just log the error, but continue with new model
-                    if use_wandb:
-                        wandb.log({"model_loaded": False, "error": str(load_error)})
+                    wandb.log({"model_loaded": False, "error": str(load_error)})
 
         # Convert data from dict format back to DataFrame if needed
         if isinstance(data, list):
@@ -232,8 +191,7 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                     # Log metrics every few batches
                     if batch_idx % 10 == 0:
                         print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}/{len(train_loader)}")
-                        if use_wandb:
-                            wandb.log(metrics)
+                        wandb.log(metrics)
 
                 except Exception as e:
                     print(f"Error in batch processing: {str(e)}")
@@ -248,12 +206,11 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                          for k in epoch_losses[0].keys()}
             current_loss = sum(avg_losses.values())
 
-            if use_wandb:
-                wandb.log({
-                    "epoch": epoch,
-                    "average_loss": current_loss,
-                    **avg_losses
-                })
+            wandb.log({
+                "epoch": epoch,
+                "average_loss": current_loss,
+                **avg_losses
+            })
 
             # Save best model
             if current_loss < best_loss:
@@ -272,18 +229,16 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
                     
                     volume.commit()
                     
-                    # Log the saving event if WandB is enabled
-                    if use_wandb:
-                        wandb.log({
-                            "model_saved": True,
-                            "model_path": model_path,
-                            "versioned_path": versioned_path,
-                            "best_loss": best_loss
-                        })
+                    # Log the saving event
+                    wandb.log({
+                        "model_saved": True,
+                        "model_path": model_path,
+                        "versioned_path": versioned_path,
+                        "best_loss": best_loss
+                    })
                 except Exception as e:
                     print(f"Warning: Failed to save model: {str(e)}")
-                    if use_wandb:
-                        wandb.log({"model_saved": False, "error": str(e)})
+                    wandb.log({"model_saved": False, "error": str(e)})
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
@@ -292,15 +247,13 @@ def train_gan_remote(data, input_dim: int, hidden_dim: int, epochs: int, batch_s
 
     except Exception as e:
         print(f"Training error: {str(e)}")
-        if use_wandb:
-            wandb.log({"training_error": str(e)})
-            wandb.finish()
+        wandb.log({"training_error": str(e)})
+        wandb.finish()
         raise e
 
     finally:
-        # Always ensure wandb run is finished if it was initialized
-        if use_wandb:
-            wandb.finish()
+        # Always ensure wandb run is finished
+        wandb.finish()
 
     return avg_losses if 'avg_losses' in locals() else None
 
@@ -515,12 +468,7 @@ class ModalGAN:
                 torch.save(gan.state_dict(), local_path)
                 print(f"Model saved locally to {local_path}")
                 
-                # Finish wandb run if it was initialized
-                try:
-                    wandb.finish()
-                except:
-                    pass
-                
+                wandb.finish()
                 return losses[-1] if losses else None
                 
             except Exception as inner_e:
@@ -619,76 +567,21 @@ class ModalGAN:
                 raise RuntimeError(f"Both remote and local generation failed: {str(e)} -> {str(inner_e)}")
     
     def list_available_models(self):
-        """List all available models saved in the Modal volume with enhanced error handling"""
-        all_models = []
-        modal_models_found = False
-        local_models_found = False
-        
-        # First try to get models from Modal
+        """List all available models saved in the Modal volume"""
         try:
-            print("Attempting to retrieve models from Modal volume...")
-            with app.run():
-                modal_models = list_modal_models_remote.remote()
-                if modal_models:
-                    print(f"Successfully retrieved {len(modal_models)} models from Modal")
-                    all_models.extend(modal_models)
-                    modal_models_found = True
+            return list_models_remote.remote()
+        except Exception as e:
+            print(f"Failed to list models: {str(e)}")
+            # Try to list local models as fallback
+            try:
+                import os
+                if os.path.exists("models"):
+                    model_files = [f for f in os.listdir("models") if f.endswith(".pt")]
+                    return [{"filename": f, "location": "local"} for f in model_files]
                 else:
-                    print("No models found in Modal volume")
-                
-        except Exception as e:
-            print(f"Failed to connect to Modal: {str(e)}")
-        
-        # Then try to get local models as well (not just as fallback)
-        try:
-            print("Checking for local models...")
-            import os
-            if not os.path.exists("models"):
-                os.makedirs("models", exist_ok=True)
-                print("Created local 'models' directory")
-            
-            model_files = [f for f in os.listdir("models") if f.endswith(".pt")]
-            if model_files:
-                print(f"Found {len(model_files)} local model files")
-                local_models = []
-                
-                for model_file in model_files:
-                    # Get file size and modification time
-                    stats = os.stat(f"models/{model_file}")
-                    size_mb = stats.st_size / (1024 * 1024)
-                    mod_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
-                    
-                    # Extract model type from filename
-                    model_type = "unknown"
-                    for t in ['tablegan', 'wgan', 'cgan', 'tvae', 'ctgan']:
-                        if t in model_file.lower():
-                            model_type = t.upper()
-                            break
-                    
-                    local_models.append({
-                        "filename": model_file,
-                        "model_type": model_type,
-                        "size_mb": round(size_mb, 2),
-                        "last_modified": mod_time,
-                        "location": "local"
-                    })
-                
-                all_models.extend(local_models)
-                local_models_found = True
-            else:
-                print("No local models found")
-        except Exception as e:
-            print(f"Error listing local models: {str(e)}")
-        
-        # Return combined results with status information
-        if not all_models:
-            print("No models found in either Modal or locally")
-            # Return empty list with diagnostic info
-            return []
-        
-        # Sort models by last_modified date (most recent first)
-        all_models.sort(key=lambda x: x.get("last_modified", ""), reverse=True)
-        return all_models
+                    return []
+            except:
+                return []
     
     def delete_model(self, model_name: str):
         """Delete a model from the Modal volume"""
@@ -696,13 +589,12 @@ class ModalGAN:
             model_name += ".pt"
             
         try:
-            with app.run():
-                result = delete_model_file_remote.remote(model_name)
-                if result:
-                    print(f"Successfully deleted model {model_name}")
-                else:
-                    print(f"Model {model_name} not found")
-                return result
+            result = delete_model_remote.remote(model_name)
+            if result:
+                print(f"Successfully deleted model {model_name}")
+            else:
+                print(f"Model {model_name} not found")
+            return result
                 
         except Exception as e:
             print(f"Failed to delete model: {str(e)}")

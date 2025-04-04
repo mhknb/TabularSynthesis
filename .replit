@@ -39,6 +39,10 @@ args = "Test TableGAN"
 task = "workflow.run"
 args = "Simple Test"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Test Optimizations"
+
 [[workflows.workflow]]
 name = "Streamlit App"
 author = "agent"
@@ -124,6 +128,20 @@ task = "packager.installForAll"
 task = "shell.exec"
 args = "cd testing && streamlit run test_simple.py"
 waitForPort = 8501
+
+[[workflows.workflow]]
+name = "Test Optimizations"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python test_optimizations.py"
 
 [[ports]]
 localPort = 5000
